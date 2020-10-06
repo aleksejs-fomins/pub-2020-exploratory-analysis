@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import itertools
+import mat73
 from os.path import basename, dirname, join
 
 # IPython-Specific
@@ -16,7 +17,7 @@ from mesostat.utils.system import getfiles_walk
 
 # Local libraries
 from lib.sych.mouse_performance import mouse_performance_allsessions
-from lib.sych.data_read import read_neuro_perf, read_paw, read_lick, read_whisk, readTE_H5, parse_TE_folder
+from lib.sych.data_read import read_neuro_perf, read_paw, read_lick, read_whisk, readTE_H5, parse_TE_folder, session_name_to_mousename
 from lib.sych.behaviour_preprocess import resample_lick, resample_paw, resample_whisk
 
 
@@ -91,7 +92,6 @@ class DataFCDatabase :
             key : sumByMouse(dataFrame) for key, dataFrame in self.metaDataFrames.items()
         }, index=self.mice)
 
-
     # User selects multiple sets of H5 files, corresponding to different datasets
     # Parse filenames and get statistics of files in each dataset
     def _find_parse_te_files(self, datapath):
@@ -126,7 +126,6 @@ class DataFCDatabase :
         }
         self.summaryTE.update(summaryTEExtra)
 
-
     # Channel labels are brain regions associated to each channel index
     # The channel labels need not be consistent across mice, or even within one mouse
     def _find_parse_channel_labels(self, path):
@@ -150,7 +149,6 @@ class DataFCDatabase :
         self.metaDataFrames['neuro'] = pd.DataFrame(neuroDict)
         self.mice.update(set(self.metaDataFrames['neuro']['mousename']))
 
-
     def _find_parse_paw_files(self, path):
         paw_paths = getfiles_walk(path, ["deltaI_paw.mat"])
         paw_data = [[
@@ -163,7 +161,6 @@ class DataFCDatabase :
         paw_dict = {k: v for k, v in zip(['mousekey', 'path', 'mousename', 'date'], np.array(paw_data).T)}
         self.metaDataFrames['paw'] = pd.DataFrame(paw_dict)
         self.mice.update(set(self.metaDataFrames['paw']['mousename']))
-
 
     def _find_parse_lick_files(self, path):
         lick_paths = getfiles_walk(path, ["lick_traces.mat"])
@@ -178,7 +175,6 @@ class DataFCDatabase :
         self.metaDataFrames['lick'] = pd.DataFrame(lick_dict)
         self.mice.update(set(self.metaDataFrames['lick']['mousename']))
 
-
     def _find_parse_whisk_files(self, path):
         whisk_paths = getfiles_walk(path, ["whiskAngle.mat"])
         whisk_data = [[
@@ -191,7 +187,6 @@ class DataFCDatabase :
         whisk_dict = {k: v for k, v in zip(['mousekey', 'path', 'mousename', 'date'], np.array(whisk_data).T)}
         self.metaDataFrames['whisk'] = pd.DataFrame(whisk_dict)
         self.mice.update(set(self.metaDataFrames['whisk']['mousename']))
-
 
     def read_te_files(self):
         if "TE" in self.metaDataFrames.keys():
@@ -207,7 +202,6 @@ class DataFCDatabase :
                 progBar.value += 1
         else:
             print("No TE files loaded, skipping reading part")
-
 
     def read_neuro_files(self):
         if 'neuro' in self.metaDataFrames.keys():
@@ -248,7 +242,6 @@ class DataFCDatabase :
         else:
             print("No Neuro files loaded, skipping reading part")
 
-
     def read_resample_paw_files(self):
         if 'paw' in self.metaDataFrames.keys():
             nPawFiles = self.metaDataFrames['paw'].shape[0]
@@ -261,7 +254,6 @@ class DataFCDatabase :
                 progBar.value += 1
         else:
             print("No paw files loaded, skipping reading part")
-
 
     def read_resample_lick_files(self):
         if 'lick' in self.metaDataFrames.keys():
@@ -285,7 +277,6 @@ class DataFCDatabase :
         else:
             print("No lick files loaded, skipping reading part")
 
-
     def read_resample_whisk_files(self):
         if 'whisk' in self.metaDataFrames.keys():
             nWhiskFiles = self.metaDataFrames['whisk'].shape[0]
@@ -299,6 +290,34 @@ class DataFCDatabase :
         else:
             print("No whisk files loaded, skipping reading part")
 
+    def read_pooled_behaviour(self, path):
+        # Read data
+        data = mat73.loadmat(path)['behavior']
+
+        # Create metadataframe for behaviour
+        pooledFrame = pd.DataFrame(columns=['mousename', 'mousekey'])
+        self.dataBehaviourPooled = []
+        self.dataBehaviourPooledKeys = set()
+
+        for dataMouse in data:
+            print(len(dataMouse))
+            for dataSession in dataMouse:
+                if 'session_names' in dataSession.keys():
+                    mousekey = dataSession['session_names']
+                    mousename = session_name_to_mousename(mousekey)
+
+                    row = pd.DataFrame([[mousekey, mousename]], columns=['mousename', 'mousekey'])
+                    pooledFrame = pooledFrame.append(row, ignore_index=True)
+
+                    del dataSession['session_names']
+                    self.dataBehaviourPooled += [dataSession]
+                    self.dataBehaviourPooledKeys |= set(dataSession.keys())
+
+                    # print(dataSession['session_names'])
+
+                # print(dataSession.keys())
+
+        self.metaDataFrames['pooled_behaviour'] = pooledFrame
 
     # Mark days as naive or expert based on performance threshold
     def mark_days_expert_naive(self, pTHR):
@@ -321,18 +340,14 @@ class DataFCDatabase :
         self.metaDataFrames['neuro']['deltaDays'] = deltaDays
         self.metaDataFrames['neuro']['deltaDaysCentered'] = deltaDaysCentered
 
-
     def get_channel_labels(self, mousename):
         return self.channelLabelsDict[mousename]
-
 
     def get_nchannels(self, mousename):
         return len(self.channelLabelsDict[mousename])
 
-
     def get_rows(self, frameName, coldict):
         return get_rows_colvals(self.metaDataFrames[frameName], coldict)
-
 
     # Find FC data for specified rows, then crop to selected time range
     def get_fc_data(self, idx, rangeSec=None):
@@ -343,7 +358,6 @@ class DataFCDatabase :
         else:
             rng = slice_sorted(timesThis, rangeSec)
             return timesThis[rng[0]:rng[1]], fcThis[..., rng[0]:rng[1]]
-
 
     # Provide rows for all sessions of the same mouse, iterating over combinations of other anaylsis parameters
     def mouse_iterator(self):

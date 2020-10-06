@@ -8,6 +8,10 @@ from mesostat.utils.dictionaries import merge_dicts
 from lib.sych.mouse_performance import mouse_performance_single_session
 
 
+def session_name_to_mousename(mousekey):
+    return '_'.join(mousekey.split('_')[:2])
+
+
 # Read data and behaviour matlab files given containing folder
 def read_neuro_perf(folderpath, verbose=True, withPerformance=True):
     # Read MAT file from command line
