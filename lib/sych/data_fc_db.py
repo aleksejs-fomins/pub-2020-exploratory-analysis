@@ -322,6 +322,7 @@ class DataFCDatabase :
     # Mark days as naive or expert based on performance threshold
     def mark_days_expert_naive(self, pTHR):
         nNeuroFiles = self.metaDataFrames['neuro'].shape[0]
+        self.expertThrIdx = {}  # Which session counting alphabetically is first expert for a given mouse
         isExpert = np.zeros(nNeuroFiles, dtype=bool)
         deltaDays = np.zeros(nNeuroFiles)
         deltaDaysCentered = np.zeros(nNeuroFiles)
@@ -333,7 +334,7 @@ class DataFCDatabase :
             thisMouseDataIdxs = np.array(thisMouseMetadata["date"].index)
             perf = self.dataPerformance[thisMouseDataIdxs]
             skillRez = mouse_performance_allsessions(list(thisMouseMetadata["date"]), perf, pTHR)
-            isExpert[thisMouseDataIdxs], deltaDays[thisMouseDataIdxs], deltaDaysCentered[thisMouseDataIdxs] = skillRez
+            self.expertThrIdx[mousename], isExpert[thisMouseDataIdxs], deltaDays[thisMouseDataIdxs], deltaDaysCentered[thisMouseDataIdxs] = skillRez
 
         # Add these values to metadata
         self.metaDataFrames['neuro']['isExpert'] = isExpert

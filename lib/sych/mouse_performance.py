@@ -30,4 +30,7 @@ def mouse_performance_allsessions(datesLst, perfLst, pTHR):
     deltaDaysThr = deltaDays[expertThrIdx] if expertThrIdx < nDays else deltaDays[-1] + 1
     deltaDaysCentered = deltaDays - deltaDaysThr
 
-    return isExpert, deltaDays, deltaDaysCentered
+    # There is only a threshold if mouse reached expert level at all
+    expertThrIdxEff = expertThrIdx if expertThrIdx < nDays else None
+
+    return expertThrIdxEff, isExpert, deltaDays, deltaDaysCentered
