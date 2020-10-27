@@ -13,20 +13,18 @@ def dimord_to_labels(dimOrd):
     return tuple([dimOrdDict[d] for d in dimOrd])
 
 
-def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg, dataName=None, cropTime=None, zscoreDim=None, metricSettings=None, sweepSettings=None):
-    rows = dataDB.get_rows('neuro', {'mousename': mousename})
+def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
+                      dataName=None, cropTime=None, trialType=None,
+                      zscoreDim=None, timeWindow=None, metricSettings=None, sweepSettings=None):
 
-    progBar = IntProgress(min=0, max=len(rows), description=mousename)
-    display(progBar)  # display the bar
+    dataLst = dataDB.get_neuro_data({'mousename': mousename}, trialType=trialType, cropTime=cropTime)
 
     rez = []
-    for idx, row in rows.iterrows():
-        if cropTime is None:
-            data = dataDB.dataNeuronal[idx]
-        else:
-            data = dataDB.dataNeuronal[idx][:, :cropTime]
-
-        mc.set_data(data, 'rsp', zscoreDim=zscoreDim)
+    progBar = IntProgress(min=0, max=len(dataLst), description=mousename)
+    display(progBar)  # display the bar
+    for dataSession in dataLst:
+        # Calculate stuff
+        mc.set_data(dataSession, 'rsp', timeWindow=timeWindow, zscoreDim=zscoreDim)
         rez += [mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)]
         progBar.value += 1
 

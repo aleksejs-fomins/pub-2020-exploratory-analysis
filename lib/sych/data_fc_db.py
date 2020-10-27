@@ -350,6 +350,27 @@ class DataFCDatabase :
     def get_rows(self, frameName, coldict):
         return get_rows_colvals(self.metaDataFrames[frameName], coldict)
 
+    def get_neuro_data(self, coldict, trialType=None, cropTime=None):
+        rows = self.get_rows('neuro', coldict)
+
+        dataLst = []
+        for idx, row in rows.iterrows():
+            # Crop time to have uniform
+            if cropTime is None:
+                data = self.dataNeuronal[idx]
+            else:
+                data = self.dataNeuronal[idx][:, :cropTime]
+
+            # Extract necessary trials or all
+            if trialType is not None:
+                assert trialType in ['iGO', 'iNOGO'], "Unexpected trial type"
+                idxsTrials = self.dataTrials[idx][trialType] - 1
+                data = data[idxsTrials]
+
+            dataLst += [data]
+
+        return dataLst
+
     # Find FC data for specified rows, then crop to selected time range
     def get_fc_data(self, idx, rangeSec=None):
         timesThis = self.dataTEtimes[idx]

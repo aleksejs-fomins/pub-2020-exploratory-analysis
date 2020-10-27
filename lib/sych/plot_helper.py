@@ -1,7 +1,5 @@
 import matplotlib.pyplot as plt
-from ast import literal_eval as str2tuple
 
-from mesostat.utils.pandas_helper import get_rows_colvals
 from mesostat.utils.plotting import imshow
 
 
@@ -10,15 +8,9 @@ def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None
 
     fig, ax = plt.subplots(ncols=len(dataDB.mice), figsize=(fig1size[0] * len(dataDB.mice), fig1size[1]))
     for iMouse, mousename in enumerate(sorted(dataDB.mice)):
-        rows = get_rows_colvals(resultDF, {"mousename" : mousename, "name" : dsetName})
-
-        # Find index of the latest result
-        maxRowIdx = rows['datetime'].idxmax()
-        dsetKey = rows.loc[maxRowIdx]['dset']
-        shapeLabels = str2tuple(rows.loc[maxRowIdx]['target_dim'])
-
-        # Get data
-        data = ds.get_data(dsetKey)
+        queryDict = {"mousename" : mousename, "name" : dsetName}
+        data, attrs = ds.get_data_recent_by_query(queryDict, listDF=resultDF)
+        shapeLabels = attrs['target_dim']
 
         # Plot data
         imshow(fig, ax[iMouse], data, xlabel=shapeLabels[0], ylabel=shapeLabels[1], title=mousename, haveColorBar=True, limits=limits, cmap=cmap, aspect=aspect)
@@ -35,15 +27,11 @@ def imshow_dataset_by_session(dataDB, ds, dsetName, plotNameSuffix='', limits=No
     resultDF = ds.list_dsets_pd()
 
     for iMouse, mousename in enumerate(sorted(dataDB.mice)):
-        rows = get_rows_colvals(resultDF, {"mousename" : mousename, "name" : dsetName})
-
-        # Find index of the latest result
-        maxRowIdx = rows['datetime'].idxmax()
-        dsetKey = rows.loc[maxRowIdx]['dset']
-        shapeLabels = str2tuple(rows.loc[maxRowIdx]['target_dim'])
-
         # Get data
-        data = ds.get_data(dsetKey)
+        queryDict = {"mousename" : mousename, "name" : dsetName}
+        data, attrs = ds.get_data_recent_by_query(queryDict, listDF=resultDF)
+        shapeLabels = attrs['target_dim']
+
         assert data.ndim == 3, "Dataset must include sessions and 2 other dimensions"
         # assert len(shapeLabels), "Dataset must include sessions and 2 other dimensions"
         # assert shapeLabels[0] == 'sessions', "First dataset dimension must be sessions"
