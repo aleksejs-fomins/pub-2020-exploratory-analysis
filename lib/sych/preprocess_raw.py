@@ -309,7 +309,7 @@ def pooled_trial_length_summary_excel(dfRawH5):
                 types = np.array(h5file['trialTypes'][session])
                 starts = h5file['trialStartIdxs'][session]
                 intervs = h5file['interTrialStartIdxs'][session]
-                lens = starts - intervs[:-1]
+                lens = intervs[1:] - starts
 
                 for iType, trialType in enumerate(h5file['trialTypeNames']):
                     trialTypeDec = trialType.decode("utf-8")
@@ -337,7 +337,7 @@ def pooled_trial_length_summary_excel(dfRawH5):
 ###########################
 
 def behav_timing_get_files_df(fpathData):
-    fileswalk = getfiles_walk(fpathData, ['behavior', '.txt'])
+    fileswalk = getfiles_walk(fpathData, ['mvg', '.txt'])
 
     # Convert to pandas
     df = pd.DataFrame(fileswalk, columns=['path', 'fname'])
@@ -347,24 +347,61 @@ def behav_timing_get_files_df(fpathData):
 
     df['session'] = [os.path.basename(os.path.dirname(path)) for path in df['path']]
     df['path'] = [os.path.join(path, fname) for path, fname in zip(df['path'], df['fname'])]
-    df['mousename'] = [session[:4] for session in df['session']]
+    df['mousename'] = [session[:5] for session in df['session']]
 
     return df.drop('fname', axis=1)
 
 
-def behav_timing_read_get_trial_lengths(dfBehavTiming):
-    for idx, row in dfBehavTiming.iterrows():
-        dfFile = pd.read_csv(row['path'], sep='\t')
-        dfFile['datetime'] = [datetime.strptime(d + ' ' + t, '%d.%m.%Y %H:%M:%S.%f') for d,t in zip(dfFile['Date'], dfFile['Time'])]
+def behav_timing_read_get_trial_lengths(dfRawH5, dfBehavTiming):
+    for idxData, rowData in dfRawH5.iterrows():
+        with h5py.File(rowData['path'], 'a') as h5file:
+            rowsBehavThis = dfBehavTiming[dfBehavTiming['mousename'] == rowData['mousename']]
 
-        datetimesStart = np.array(dfFile[dfFile['Event'] == 'Begin Trial / Recording']['datetime'])
-        datetimesEnd = np.array(dfFile[dfFile['Event'] == 'End Trial']['datetime'])
+            if 'trialDurationBehavior' not in h5file.keys():
+                h5file.create_group('trialDurationBehavior')
 
-        trialLengths = datetimesEnd - datetimesStart
-        trialLengths = [t.total_seconds() for t in trialLengths]
+            for idxBehav, rowBehav in rowsBehavThis.iterrows():
+                print(rowBehav['session'])
 
-        print(row['session'], trialLengths)
+                dfFile = pd.read_csv(rowBehav['path'], sep='\t')
+                dfFile['datetime'] = [datetime.strptime(d + ' ' + t, '%d.%m.%Y %H:%M:%S.%f') for d,t in zip(dfFile['Date'], dfFile['Time'])]
 
+                datetimesStart = dfFile[dfFile['Event'] == 'Begin Trial / Recording']['datetime']
+                datetimesEnd = dfFile[dfFile['Event'] == 'End Trial ']['datetime']
+
+                # trialLengths = list(datetimesEnd - datetimesStart)
+                trialLengths = [(r - l).total_seconds() for r,l in zip(datetimesEnd, datetimesStart)]
+
+                h5file['trialDurationBehavior'].create_dataset(rowBehav['session'], data=trialLengths)
+
+
+def behav_timing_compare_neuro(dfRawH5):
+    for idx, row in dfRawH5.iterrows():
+        with h5py.File(row['path'], 'a') as h5file:
+            for session in list(h5file['data'].keys()):
+                trialStartIdxs = h5file['trialStartIdxs'][session]
+                intervStartIdxs = h5file['interTrialStartIdxs'][session]
+                FPS = h5file['data'][session].attrs['FPS']
+                trialDurationBehav = h5file['trialDurationBehavior'][session]
+                trialDurationNeuro = (intervStartIdxs[1:] - trialStartIdxs) / FPS
+
+                nTrialBehav = len(trialDurationBehav)
+                nTrialNeuro = len(trialDurationNeuro)
+                if nTrialBehav > nTrialNeuro:
+                    trialDurationBehav = trialDurationBehav[:nTrialNeuro]
+
+                tMin = min(np.min(trialDurationBehav), np.min(trialDurationNeuro))
+                tMax = max(np.max(trialDurationBehav), np.max(trialDurationNeuro))
+                xfake = np.linspace(tMin, tMax, 20)
+
+                plt.figure()
+                plt.plot(xfake, xfake, '--', color='gray')
+                plt.plot(trialDurationBehav, trialDurationNeuro, '.')
+                plt.xlabel('duration (behaviour), s')
+                plt.ylabel('duration (TTL), s')
+                plt.title(session)
+                plt.savefig(session+'.png')
+                plt.close()
 
 ###########################
 # Background subtraction
