@@ -8,6 +8,7 @@ import h5py
 from mesostat.utils.system import getfiles_walk
 from mesostat.utils.hdf5_io import DataStorage
 from mesostat.utils.matlab_helper import loadmat #, matstruct2dict
+from mesostat.utils.signals import downsample_int
 #from lib.sych.data_read import read_neuro_perf
 
 
@@ -114,7 +115,7 @@ def pooled_move_data_subfolder(dfRawH5):
     for idx, row in dfRawH5.iterrows():
         with h5py.File(row['path'], 'a') as h5file:
             if 'data' not in h5file.keys():
-                grp = h5file.create_group("data")
+                h5file.create_group("data")
 
             for key in h5file.keys():
                 if key != 'data':
@@ -160,15 +161,23 @@ def pooled_mark_trial_starts_ends(dfRawH5):
 
                 tTrial = idxIntervStart[1:] - idxTrialStart
 
-                FPS = 20 if np.median(tTrial) < 200 else 40
+                FPS = 20 if np.median(tTrial) < 250 else 40
 
-                h5file['trialStartIdxs'].create_dataset(session, data=idxTrialStart)
-                h5file['interTrialStartIdxs'].create_dataset(session, data=idxIntervStart)
+                if session not in h5file['trialStartIdxs'].keys():
+                    h5file['trialStartIdxs'].create_dataset(session, data=idxTrialStart)
+                if session not in h5file['interTrialStartIdxs'].keys():
+                    h5file['interTrialStartIdxs'].create_dataset(session, data=idxIntervStart)
                 h5file['data'][session].attrs['FPS'] = FPS
 
     #             print(nTrial, nInterv, FPS)
     #             print('low', tTrial[tTrial < 8 * FPS] / FPS)
     #             print('high', tTrial[tTrial > 12 * FPS] / FPS)
+
+
+def pooled_get_path_session(dfRawH5, session):
+    mousename = session[:5]
+    row = dfRawH5[dfRawH5['mousename'] == mousename]
+    return list(row['path'])[0]
 
 
 ###########################
@@ -403,6 +412,89 @@ def behav_timing_compare_neuro(dfRawH5):
                 plt.savefig(session+'.png')
                 plt.close()
 
+
+###########################
+# Dropping bad sessions and trials
+###########################
+
+def drop_session(dfRawH5, session):
+    path = pooled_get_path_session(dfRawH5, session)
+
+    groupKeys = ['data', 'interTrialStartIdxs', 'trialDurationBehavior', 'trialStartIdxs']
+
+    with h5py.File(path, 'a') as h5file:
+        for key in groupKeys:
+            if session in h5file[key].keys():
+                print('deleting', key, session)
+                del h5file[key][session]
+
+
+def drop_sessions_not_in_neuro(dfNeuro, dfRawH5):
+    sessionsNeuro = list(dfNeuro['session'])
+    sessionsDrop = []
+
+    for idx, row in dfRawH5.iterrows():
+        with h5py.File(row['path'], 'r') as h5file:
+            for session in list(h5file['data'].keys()):
+                if session not in sessionsNeuro:
+                    sessionsDrop += [session]
+
+    for session in sessionsDrop:
+        drop_session(dfRawH5, session)
+
+
+def drop_trials(dfRawH5, session, idxsTrial):
+    path = pooled_get_path_session(dfRawH5, session)
+
+    with h5py.File(path, 'a') as h5file:
+        tmp = np.array(h5file['trialTypes'][session])
+
+        if not np.all(tmp[idxsTrial] == -1):
+            print('dropping', session, idxsTrial)
+            tmp[idxsTrial] = -1
+
+            del h5file['trialTypes'][session]
+            h5file['trialTypes'].create_dataset(session, data=tmp)
+
+
+def find_large_trials(dfRawH5):
+    rezDict = {}
+
+    for idx, row in dfRawH5.iterrows():
+        with h5py.File(row['path'], 'r') as h5file:
+            for session in list(h5file['data'].keys()):
+                trialIdxs = np.array(h5file['trialTypes'][session]) >= 0
+
+                data = h5file['data'][session]
+                startIdxs = np.array(h5file['trialStartIdxs'][session])
+                FPS = h5file['data'][session].attrs['FPS']
+
+                postSh = startIdxs + int(8 * FPS)
+                dataTrials = np.array([data[l:r] for l, r in zip(startIdxs, postSh)])
+                dataTrialsFilter = dataTrials[trialIdxs]
+                trialMag = np.linalg.norm(dataTrialsFilter, axis=(1,2)) / np.prod(dataTrialsFilter.shape[1:])
+
+                idxsLarge = np.where(trialMag > 2 * np.median(trialMag))[0]
+
+                if len(idxsLarge) > 0:
+                    trialIdxEnumAll = np.arange(len(trialIdxs))
+                    idxsLargeGlob = trialIdxEnumAll[trialIdxs][idxsLarge]
+                    typesLarge = np.array(h5file['trialTypes'][session])[idxsLargeGlob]
+                    typeNamesLarge = np.array(h5file['trialTypeNames'])[typesLarge]
+                    typeNamesLarge = [t.decode('UTF8') for t in typeNamesLarge]
+
+                    print(session, np.array(idxsLargeGlob)+1, typeNamesLarge)
+
+                    rezDict[session] = np.array(idxsLargeGlob)
+
+#                     for idx in idxsLargeGlob:
+#                         plt.figure()
+#                         for iCh in range(48):
+#                             plt.semilogy(x, dataTrials[idx, :, iCh])
+#                         plt.show()
+    return rezDict
+
+
 ###########################
 # Background subtraction
 ###########################
@@ -413,18 +505,21 @@ def poly_fit_transform(x, y, ord):
     return p(x)
 
 
-def poly_fit_discrete_residuals(y, ordMax=5):
-    x = np.arange(len(y))
+def poly_fit_discrete_residual(y, ord):
+    xFake = np.arange(len(y))
+    return y - poly_fit_transform(xFake, y, ord)
 
-    relResiduals = []
-    resOld = np.linalg.norm(y)
+
+def poly_fit_discrete_parameter_selection(y, ordMax=5):
+    relResidualNorms = []
+    normOld = np.linalg.norm(y)
     for ord in range(0, ordMax+1):
-        yfit = poly_fit_transform(x, y, ord)
-        resThis = np.linalg.norm(y - yfit)
-        relResiduals += [1 - resThis / resOld]
-        resOld = resThis
+        resThis = poly_fit_discrete_residual(y, ord)
+        normThis = np.linalg.norm(resThis)
+        relResidualNorms += [1 - normThis / normOld]
+        normOld = normThis
 
-    return relResiduals
+    return relResidualNorms
 
 
 def pooled_plot_background_polyfit_residuals(dfRawH5, ordMax=5):
@@ -437,8 +532,118 @@ def pooled_plot_background_polyfit_residuals(dfRawH5, ordMax=5):
 
                 plt.figure()
                 for i in range(48):
-                    relres = poly_fit_discrete_residuals(data[:, i], ordMax=ordMax)
+                    relres = poly_fit_discrete_parameter_selection(data[:, i], ordMax=ordMax)
                     plt.plot(relres)
 
                 plt.title(session)
                 plt.show()
+
+
+###############################
+# Baseline Normalization
+###############################
+
+def get_trial_data(h5file, session, tmin=-2, tmax=8, onlySelected=True):
+    data = h5file['data'][session]
+    startIdxs = np.array(h5file['trialStartIdxs'][session])
+    FPS = h5file['data'][session].attrs['FPS']
+
+    # Baseline-subtract data
+    # dataSub = np.array([poly_fit_discrete_residual(data[:, iCh], 2) for iCh in range(48)]).T
+
+    preSh = startIdxs + int(tmin * FPS)
+    postSh = startIdxs + int(tmax * FPS)
+    dataTrials = np.array([data[l:r] for l, r in zip(preSh, postSh)])
+
+
+    trialTypesAll = np.array(h5file['trialTypes'][session])
+    if onlySelected:
+        trialIdxs = trialTypesAll >= 0
+        dataTrials = dataTrials[trialIdxs]
+        trialTypesSelected = trialTypesAll[trialIdxs]
+    else:
+        trialTypesSelected = trialTypesAll
+
+    t = np.round(np.arange(tmin, tmax, 1 / FPS), 4)
+    return t, dataTrials, trialTypesSelected
+
+
+def check_pre_trial_activity_small(dfRawH5):
+    for idx, row in dfRawH5.iterrows():
+        with h5py.File(row['path'], 'r') as h5file:
+            for session in list(h5file['data'].keys()):
+                t, dataTrials, _ = get_trial_data(h5file, session, tmin=-2, tmax=8)
+                dataMu = np.mean(dataTrials, axis=0)
+
+                # Subtract mean pre-trial activity over session for each channel
+                idxsPre = t < 0
+                dataMu = np.array([dataMu[:, iCh] - np.mean(dataMu[idxsPre, iCh]) for iCh in range(48)]).T
+
+                plt.figure()
+                for iCh in range(48):
+                    plt.plot(t, dataMu[:, iCh])
+                plt.title(session)
+                plt.savefig(session + '.png')
+                plt.close()
+
+
+def DFF(x, timesPre, timesPost):
+    return x[timesPost] / np.mean(x[timesPre]) - 1
+
+
+def baseline_normalization(t, data3D, method):
+    timesPre = t < 0
+    timesPost = t >= 0
+    nTimesPost = np.sum(timesPost)
+
+    if method == 'raw':
+        return t[timesPost], data3D[:, timesPost]
+    else:
+        nTrial, _, nChannel = data3D.shape
+        dataRez = np.zeros((nTrial, nTimesPost, nChannel))
+
+        if method == 'bn_session':
+            for iChannel in range(nChannel):
+                dataRez[:, :, iChannel] = DFF(data3D[:, :, iChannel].T, timesPre, timesPost).T
+        elif method == 'bn_trial':
+            for iTrial in range(nTrial):
+                for iChannel in range(nChannel):
+                    dataRez[iTrial, :, iChannel] = DFF(data3D[iTrial, :, iChannel], timesPre, timesPost)
+        else:
+            raise ValueError('Unexpected method', method)
+
+        return t[timesPost], dataRez
+
+
+def extract_store_trial_data(dfRawH5, baselineMethod='raw', targetFPS=20):
+    dataName = 'data_' + baselineMethod
+
+    for idx, row in dfRawH5.iterrows():
+        with h5py.File(row['path'], 'a') as h5file:
+            if dataName in h5file.keys():
+                del h5file[dataName]
+            h5file.create_group(dataName)
+
+            if 'trialTypesSelected' not in h5file.keys():
+                h5file.create_group('trialTypesSelected')
+
+            for session in h5file['data'].keys():
+                print(session)
+
+                t, dataSession, trialTypesSelected = get_trial_data(h5file, session, tmin=-2, tmax=8)
+
+                tPost, dataTrial = baseline_normalization(t, dataSession[:, :, :48], baselineMethod)
+
+                FPS = h5file['data'][session].attrs['FPS']
+                if FPS != targetFPS:
+                    print('--downsampling', FPS, dataTrial.shape)
+
+                    nTimesDownsample = FPS // targetFPS
+                    dataTrial = dataTrial.transpose((1,0,2))
+                    t2, dataTrial = downsample_int(tPost, dataTrial, nTimesDownsample)
+                    dataTrial = dataTrial.transpose((1,0,2))
+
+                h5file[dataName].create_dataset(session, data=dataTrial)
+
+                if session not in h5file['trialTypesSelected'].keys():
+                    h5file['trialTypesSelected'].create_dataset(session, data=trialTypesSelected)
