@@ -7,10 +7,15 @@ import h5py
 
 from mesostat.utils.system import getfiles_walk
 from mesostat.utils.hdf5_io import DataStorage
-from mesostat.utils.matlab_helper import loadmat #, matstruct2dict
+from mesostat.utils.matlab_helper import loadmat
 from mesostat.utils.signals import downsample_int
-#from lib.sych.data_read import read_neuro_perf
+from lib.sych.data_read import read_neuro_perf
 
+
+def h5_overwrite_group(h5file, groupName, **kwargs):
+    if groupName in h5file.keys():
+        del h5file[groupName]
+    h5file.create_group(groupName, **kwargs)
 
 ###########################
 # Reading raw files
@@ -137,10 +142,8 @@ def pooled_mark_trial_starts_ends(dfRawH5):
         print(row['mousename'])
 
         with h5py.File(row['path'], 'a') as h5file:
-            if 'trialStartIdxs' not in h5file.keys():
-                grp = h5file.create_group('trialStartIdxs')
-            if 'interTrialStartIdxs' not in h5file.keys():
-                grp = h5file.create_group('interTrialStartIdxs')
+            h5_overwrite_group(h5file, 'trialStartIdxs')
+            h5_overwrite_group(h5file, 'interTrialStartIdxs')
 
             for session in list(h5file['data'].keys()):
                 print(session)
@@ -163,10 +166,8 @@ def pooled_mark_trial_starts_ends(dfRawH5):
 
                 FPS = 20 if np.median(tTrial) < 250 else 40
 
-                if session not in h5file['trialStartIdxs'].keys():
-                    h5file['trialStartIdxs'].create_dataset(session, data=idxTrialStart)
-                if session not in h5file['interTrialStartIdxs'].keys():
-                    h5file['interTrialStartIdxs'].create_dataset(session, data=idxIntervStart)
+                h5file['trialStartIdxs'].create_dataset(session, data=idxTrialStart)
+                h5file['interTrialStartIdxs'].create_dataset(session, data=idxIntervStart)
                 h5file['data'][session].attrs['FPS'] = FPS
 
     #             print(nTrial, nInterv, FPS)
@@ -220,7 +221,7 @@ def orig_neuro_get_files_df(fpath):
     return df #df.drop('fname', axis=1)
 
 
-def pooled_mark_trial_types(dfRawH5, dfNeuro):
+def pooled_mark_trial_types_performance(dfRawH5, dfNeuro):
     keysNeeded = ['iGO', 'iNOGO', 'iFA', 'iMISS']
 
     for mousename in set(dfNeuro['mousename']):
@@ -234,23 +235,20 @@ def pooled_mark_trial_types(dfRawH5, dfNeuro):
             if 'trialTypeNames' not in h5file.keys():
                 h5file.create_dataset('trialTypeNames', data=np.array(keysNeeded).astype('S'))
 
-            if 'trialTypes' in h5file.keys():
-                del h5file['trialTypes']
-            h5file.create_group('trialTypes')
+            h5_overwrite_group(h5file, 'trialTypes')
+            h5_overwrite_group(h5file, 'performance')
 
             for idx, rowOrig in rowsOrig.iterrows():
                 session = rowOrig['session']
 
-                pwd = os.path.join(rowOrig['path'], 'behaviorvar.mat')
+                _, behavior, performance = read_neuro_perf(rowOrig['path'], verbose=False)
 
-                behavior = loadmat(pwd)
-                #         behavior['trials'] = merge_dicts([matstruct2dict(obj) for obj in behavior['trials']])
                 fixint = lambda v: v if not isinstance(v, int) else np.array([v])
                 behavior = {k: fixint(v) for k, v in behavior.items()}
 
                 # Find all behaviour keys used in this session
                 keysLst = set([key for key in behavior.keys() if len(behavior[key]) > 0])
-                keysLst -= set(['trials'])
+                keysLst -= {'trials'}
                 keysLst = list(sorted(keysLst))
 
                 # Test if multiple keys are assigned to the same trial - currently not possible under our method
@@ -285,6 +283,74 @@ def pooled_mark_trial_types(dfRawH5, dfNeuro):
                     enumArr = enumArr[:minNTrial]
 
                 h5file['trialTypes'].create_dataset(session, data=enumArr)
+                h5file['performance'].create_dataset(session, data=performance)
+
+
+# def pooled_mark_trial_types_performance(dfRawH5, dfNeuro):
+#     keysNeeded = ['iGO', 'iNOGO', 'iFA', 'iMISS']
+#
+#     for mousename in set(dfNeuro['mousename']):
+#         rowsOrig = dfNeuro[dfNeuro['mousename'] == mousename]
+#
+#         rowH5 = dfRawH5[dfRawH5['mousename'] == mousename]
+#         pathH5 = list(rowH5['path'])[0]
+#
+#         with h5py.File(pathH5, 'a') as h5file:
+#             # Store trial type keys
+#             if 'trialTypeNames' not in h5file.keys():
+#                 h5file.create_dataset('trialTypeNames', data=np.array(keysNeeded).astype('S'))
+#
+#             if 'trialTypes' in h5file.keys():
+#                 del h5file['trialTypes']
+#             h5file.create_group('trialTypes')
+#
+#             for idx, rowOrig in rowsOrig.iterrows():
+#                 session = rowOrig['session']
+#
+#                 pwd = os.path.join(rowOrig['path'], 'behaviorvar.mat')
+#
+#                 behavior = loadmat(pwd)
+#                 #         behavior['trials'] = merge_dicts([matstruct2dict(obj) for obj in behavior['trials']])
+#                 fixint = lambda v: v if not isinstance(v, int) else np.array([v])
+#                 behavior = {k: fixint(v) for k, v in behavior.items()}
+#
+#                 # Find all behaviour keys used in this session
+#                 keysLst = set([key for key in behavior.keys() if len(behavior[key]) > 0])
+#                 keysLst -= set(['trials'])
+#                 keysLst = list(sorted(keysLst))
+#
+#                 # Test if multiple keys are assigned to the same trial - currently not possible under our method
+#                 #             for keyA in keysLst:
+#                 #                 for keyB in keysLst:
+#                 #                     if keyA != keyB:
+#                 #                         inter = set(behavior[keyA]).intersection(set(behavior[keyB]))
+#                 #                         if len(inter) > 0:
+#                 #                             print(keyA, keyB, len(inter))
+#
+#
+#                 minTrial = np.min([np.min(behavior[k]) for k in keysLst if len(behavior[k]) > 0])
+#                 maxTrial = np.max([np.max(behavior[k]) for k in keysLst if len(behavior[k]) > 0])
+#
+#                 nTrialsExp = len(h5file['trialStartIdxs'][session])
+#
+#                 # Enumerate all required keys, and set values
+#                 enumArr = np.full(maxTrial, -1, dtype=int)
+#                 for i, key in enumerate(keysNeeded):
+#                     if key in behavior.keys():
+#                         idxs = (behavior[key] - 1).astype(int)
+#                         assert np.all(enumArr[idxs] == -1)
+#                         enumArr[idxs] = i
+#
+#                 print(session, np.sum(enumArr == -1), minTrial, maxTrial, nTrialsExp, maxTrial == nTrialsExp)
+#
+#                 # Crop number of trials if behaviour or raw data have more than the other
+#                 if maxTrial != nTrialsExp:
+#                     minNTrial = min(maxTrial, nTrialsExp)
+#
+#                     print('--cropping to smallest', minNTrial)
+#                     enumArr = enumArr[:minNTrial]
+#
+#                 h5file['trialTypes'].create_dataset(session, data=enumArr)
 
 
 def pooled_trunc_trial_starts_ntrials(dfRawH5):
@@ -301,7 +367,7 @@ def pooled_trunc_trial_starts_ntrials(dfRawH5):
                 nTrialIdx = len(h5file['trialStartIdxs'][session])
                 nInterIdx = len(h5file['interTrialStartIdxs'][session])
 
-                print(nTrialBeh, nTrialIdx, nInterIdx)
+                print(session, nTrialBeh, nTrialIdx, nInterIdx)
                 if nTrialIdx > nTrialBeh:
                     print('-- correcting')
                     trunc_h5(h5file['trialStartIdxs'], session, nTrialBeh)
@@ -388,6 +454,8 @@ def behav_timing_compare_neuro(dfRawH5):
     for idx, row in dfRawH5.iterrows():
         with h5py.File(row['path'], 'a') as h5file:
             for session in list(h5file['data'].keys()):
+                print(session)
+
                 trialStartIdxs = h5file['trialStartIdxs'][session]
                 intervStartIdxs = h5file['interTrialStartIdxs'][session]
                 FPS = h5file['data'][session].attrs['FPS']
@@ -457,7 +525,7 @@ def drop_trials(dfRawH5, session, idxsTrial):
             h5file['trialTypes'].create_dataset(session, data=tmp)
 
 
-def find_large_trials(dfRawH5):
+def find_short_trials(dfRawH5):
     rezDict = {}
 
     for idx, row in dfRawH5.iterrows():
@@ -470,14 +538,46 @@ def find_large_trials(dfRawH5):
                 FPS = h5file['data'][session].attrs['FPS']
 
                 postSh = startIdxs + int(8 * FPS)
-                dataTrials = np.array([data[l:r] for l, r in zip(startIdxs, postSh)])
-                dataTrialsFilter = dataTrials[trialIdxs]
+                dataTrialsLst = [data[l:r, :48] for l, r in zip(startIdxs, postSh)]
+
+                # Testing for short trials
+                trialLengths = np.array([len(d) for d in dataTrialsLst])
+                idxsShort = np.where(trialLengths < np.max(trialLengths))[0]
+
+                if len(idxsShort) > 0:
+                    print(session, 'short trials', idxsShort)
+
+                    trialIdxEnumAll = np.arange(len(trialIdxs))
+                    idxsShortGlob = trialIdxEnumAll[idxsShort]
+                    rezDict[session] = np.array(idxsShortGlob)
+
+    return rezDict
+
+
+def find_large_trials(dfRawH5):
+    rezDict = {}
+
+    for idx, row in dfRawH5.iterrows():
+        with h5py.File(row['path'], 'r') as h5file:
+            for session in list(h5file['data'].keys()):
+                trialIdxs = np.array(h5file['trialTypes'][session]) >= 0
+                trialIdxEnumAll = np.arange(len(trialIdxs))
+
+                data = h5file['data'][session]
+                startIdxs = np.array(h5file['trialStartIdxs'][session])
+                FPS = h5file['data'][session].attrs['FPS']
+
+                postSh = startIdxs + int(8 * FPS)
+                dataTrials = np.array([data[l:r, :48] for l, r in zip(startIdxs, postSh)])
+                dataTrialsFilter = np.array(list(dataTrials[trialIdxs]))
+
+                # print(session, data.shape, dataTrialsFilter.shape, np.sum(trialIdxs))
+
                 trialMag = np.linalg.norm(dataTrialsFilter, axis=(1,2)) / np.prod(dataTrialsFilter.shape[1:])
 
                 idxsLarge = np.where(trialMag > 2 * np.median(trialMag))[0]
 
                 if len(idxsLarge) > 0:
-                    trialIdxEnumAll = np.arange(len(trialIdxs))
                     idxsLargeGlob = trialIdxEnumAll[trialIdxs][idxsLarge]
                     typesLarge = np.array(h5file['trialTypes'][session])[idxsLargeGlob]
                     typeNamesLarge = np.array(h5file['trialTypeNames'])[typesLarge]
@@ -560,6 +660,9 @@ def get_trial_data(h5file, session, tmin=-2, tmax=8, onlySelected=True):
     if onlySelected:
         trialIdxs = trialTypesAll >= 0
         dataTrials = dataTrials[trialIdxs]
+        if dataTrials.ndim == 1:
+            dataTrials = np.array(list(dataTrials))
+
         trialTypesSelected = trialTypesAll[trialIdxs]
     else:
         trialTypesSelected = trialTypesAll

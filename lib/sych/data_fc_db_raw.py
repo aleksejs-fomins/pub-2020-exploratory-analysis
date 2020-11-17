@@ -42,6 +42,50 @@ class DataFCDatabase:
         self.dataPathsDict = dict(zip(mice, paths))
         self.mice = set(mice)
 
+    def _selector_to_mousename(self, selector):
+        return selector['mousename'] if 'mousename' in selector else selector['session'][:5]
+
+    # Extract sorted session names given H5 file
+    def _get_sessions_h5(self, h5file, datatype='raw', performance=None, expertThr=0.7):
+        dataKey = 'data_' + datatype
+        sessions = sorted(list(h5file[dataKey].keys()))
+
+        if performance is None:
+            return sessions
+        else:
+            performances = np.array([np.array(h5file['performance'][session]) for session in sessions])
+            expertIdxs = np.where(performances >= expertThr)[0]
+
+            if performance == 'expert':
+                thisIdxs = expertIdxs
+            elif performance == 'naive':
+                thisIdxs = set(range(len(sessions))) - set(expertIdxs)
+            else:
+                raise ValueError("Unexpected performance", performance)
+
+            return [s for i,s in enumerate(sessions) if i in thisIdxs]
+
+    # Extract trial type names given H5 file
+    def _get_trial_type_names_h5(self, h5file):
+        return [t.decode("utf-8") for t in h5file['trialTypeNames']]
+
+    def get_trial_type_names(self, mousename):
+        path = self.dataPathsDict[mousename]
+        with h5py.File(path, 'r') as h5file:
+            return self._get_trial_type_names_h5(h5file)
+
+    # For given mouse file and session, get trial indices corresponding to trials of indicated type
+    def get_trial_type_idxs_h5(self, h5file, session, trialType):
+        typeNames = self._get_trial_type_names_h5(h5file)
+        types = np.array(h5file['trialTypesSelected'][session])
+
+        # Extract necessary trials or all
+        if trialType not in typeNames:
+            raise ValueError("Unexpected trial type", trialType, "must have", typeNames)
+
+        trialTypeIdx = typeNames.index(trialType)
+        return np.where(types == trialTypeIdx)[0]
+
     def get_channel_labels(self, mousename):
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
@@ -50,47 +94,61 @@ class DataFCDatabase:
     def get_nchannels(self, mousename):
         return len(self.get_channel_labels(mousename))
 
-    def get_sessions(self, mousename, datatype='raw'):
-        dataKey = 'data_' + datatype
+    def get_ntrial_bytype(self, selector, trialType=None, performance=None):
+        rezLst = []
+
+        mousename = self._selector_to_mousename(selector)
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
-            return list(h5file[dataKey].keys())
+            sessions = selector['session'] if 'session' in selector else self._get_sessions_h5(h5file, performance=performance)
+            for session in sessions:
+                if trialType is None:
+                    rezLst += [len(h5file['trialTypesSelected'][session])]
+                else:
+                    rezLst += [len(self.get_trial_type_idxs_h5(h5file, session, trialType))]
+
+        return np.sum(rezLst)
+
+    def get_sessions(self, mousename, datatype='raw', performance=None):
+        path = self.dataPathsDict[mousename]
+        with h5py.File(path, 'r') as h5file:
+            return self._get_sessions_h5(h5file, datatype=datatype, performance=performance)
 
     def get_data_types(self, mousename):
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
             return [key[5:] for key in h5file.keys() if 'data_' in key]
 
-    def _get_trial_type_names(self, h5file):
-        return [t.decode("utf-8") for t in h5file['trialTypeNames']]
+    def get_expert_session_idxs(self, mousename, expertThr=0.7):
+        path = self.dataPathsDict[mousename]
+        with h5py.File(path, 'r') as h5file:
+            sessions = self._get_sessions_h5(h5file)
+            performances = np.array([np.array(h5file['performance'][session]) for session in sessions])
+            return np.where(performances >= expertThr)[0]
 
-    def _extract_trial_type(self, h5file, session, trialType, dataRSP):
-        typeNames = self._get_trial_type_names(h5file)
-        types = np.array(h5file['trialTypesSelected'][session])
+    def get_first_expert_session_idx(self, mousename, expertThr=0.7):
+            expertIdxs = self.get_expert_session_idxs(mousename, expertThr=expertThr)
+            if len(expertIdxs) == 0:
+                return None
+            else:
+                return np.min(expertIdxs)
 
-        print(session, dataRSP.shape, len(types))
-
-        # Extract necessary trials or all
-        if trialType not in typeNames:
-            raise ValueError("Unexpected trial type", trialType, "must have", typeNames)
-
-        trialTypeIdx = typeNames.index(trialType)
-        return dataRSP[types == trialTypeIdx]
-
-    def get_neuro_data(self, mousename, datatype='raw', session=None, trialType=None, performance=None):
+    def get_neuro_data(self, selector, datatype='raw', trialType=None, performance=None):
         dataKey = 'data_' + datatype
 
         dataLst = []
 
+        mousename = self._selector_to_mousename(selector)
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
-            sessions = [session] if session is not None else list(h5file[dataKey].keys())
+            sessions = [selector['session']] if 'session' in selector else self._get_sessions_h5(h5file, datatype=datatype, performance=performance)
 
             for sessionThis in sessions:
                 dataRSP = np.array(h5file[dataKey][sessionThis])
 
                 if trialType is not None:
-                    dataRSP = self._extract_trial_type(h5file, sessionThis, trialType, dataRSP)
+                    thisTrialTypeIdxs = self.get_trial_type_idxs_h5(h5file, sessionThis, trialType)
+                    dataRSP = dataRSP[thisTrialTypeIdxs]
 
                 dataLst += [dataRSP]
 

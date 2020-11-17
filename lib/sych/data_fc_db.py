@@ -347,8 +347,19 @@ class DataFCDatabase :
     def get_nchannels(self, mousename):
         return len(self.channelLabelsDict[mousename])
 
+    def get_first_expert_session_idx(self, mousename):
+        return self.expertThrIdx[mousename]
+
     def get_rows(self, frameName, coldict):
         return get_rows_colvals(self.metaDataFrames[frameName], coldict)
+
+    def get_sessions(self, mousename=None):
+        if mousename is None:
+            rows = self.metaDataFrames['neuro']
+        else:
+            rows = get_rows_colval(self.metaDataFrames['neuro'], 'mousename', mousename)
+
+        return sorted(set(rows['mousekey']))
 
     def get_neuro_data(self, coldict, trialType=None, cropTime=None):
         rows = self.get_rows('neuro', coldict)
