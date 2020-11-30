@@ -8,8 +8,9 @@ from IPython.display import display
 from ipywidgets import IntProgress
 
 # Mesostat includes
-from mesostat.utils.pandas_helper import get_rows_colval, get_rows_colvals
+from mesostat.utils.pandas_helper import pd_rows_colval, pd_query
 from mesostat.utils.system import getfiles_walk
+from mesostat.utils.signals import zscore_dim_ord
 
 # Local libraries
 from lib.sych.mouse_performance import mouse_performance_allsessions
@@ -133,7 +134,13 @@ class DataFCDatabase:
             else:
                 return np.min(expertIdxs)
 
-    def get_neuro_data(self, selector, datatype='raw', trialType=None, performance=None):
+    def cropRSP(self, dataRSP, startTime, endTime):
+        assert dataRSP.shape[1] == self.targetLength
+        startIdx = int(startTime * self.targetFPS)
+        endIdx = int(endTime * self.targetFPS)
+        return dataRSP[:, startIdx:endIdx]
+
+    def get_neuro_data(self, selector, datatype='raw', zscoreDim=None, cropTime=None, trialType=None, performance=None):
         dataKey = 'data_' + datatype
 
         dataLst = []
@@ -146,9 +153,15 @@ class DataFCDatabase:
             for sessionThis in sessions:
                 dataRSP = np.array(h5file[dataKey][sessionThis])
 
+                # Apply ZScoring if requested
+                # VERY IMPORTANT: ZScoring must apply before trial type selection and cropping, it is a function of the whole dataset
+                dataRSP = zscore_dim_ord(dataRSP, 'rsp', zscoreDim)
+
                 if trialType is not None:
                     thisTrialTypeIdxs = self.get_trial_type_idxs_h5(h5file, sessionThis, trialType)
                     dataRSP = dataRSP[thisTrialTypeIdxs]
+                if cropTime is not None:
+                    dataRSP = self.cropRSP(dataRSP, *cropTime)
 
                 dataLst += [dataRSP]
 

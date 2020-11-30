@@ -9,11 +9,11 @@ from IPython.display import display
 from ipywidgets import IntProgress
 
 # Mesostat includes
-from mesostat.utils.system import strlst2date
+from mesostat.utils.system import strlst2date, getfiles_walk
 from mesostat.utils.arrays import bin_data_by_keys, slice_sorted
-from mesostat.utils.pandas_helper import get_rows_colval, get_rows_colvals
+from mesostat.utils.pandas_helper import pd_rows_colval, pd_query
 from mesostat.utils.matlab_helper import loadmat
-from mesostat.utils.system import getfiles_walk
+from mesostat.utils.signals import zscore_dim_ord
 
 # Local libraries
 from lib.sych.mouse_performance import mouse_performance_allsessions
@@ -264,7 +264,7 @@ class DataFCDatabase :
 
             for index, row in self.metaDataFrames['lick'].iterrows():
                 # Find behaviour associated with this lick
-                dataIdxs = get_rows_colval(self.metaDataFrames['lick'], 'mousekey', row['mousekey']).index
+                dataIdxs = pd_rows_colval(self.metaDataFrames['lick'], 'mousekey', row['mousekey']).index
                 if dataIdxs.shape[0] == 0:
                     self.dataLickResampled += [None]
                 else:
@@ -330,7 +330,7 @@ class DataFCDatabase :
         # For each mouse, determine which sessions are naive and which expert
         # Also determine number of days passed since start and since expert
         for mousename in self.mice:
-            thisMouseMetadata = get_rows_colval(self.metaDataFrames['neuro'], 'mousename', mousename)
+            thisMouseMetadata = pd_rows_colval(self.metaDataFrames['neuro'], 'mousename', mousename)
             thisMouseDataIdxs = np.array(thisMouseMetadata["date"].index)
             perf = self.dataPerformance[thisMouseDataIdxs]
             skillRez = mouse_performance_allsessions(list(thisMouseMetadata["date"]), perf, pTHR)
@@ -351,34 +351,40 @@ class DataFCDatabase :
         return self.expertThrIdx[mousename]
 
     def get_rows(self, frameName, coldict):
-        return get_rows_colvals(self.metaDataFrames[frameName], coldict)
+        return pd_query(self.metaDataFrames[frameName], coldict)
 
     def get_sessions(self, mousename=None):
         if mousename is None:
             rows = self.metaDataFrames['neuro']
         else:
-            rows = get_rows_colval(self.metaDataFrames['neuro'], 'mousename', mousename)
+            rows = pd_rows_colval(self.metaDataFrames['neuro'], 'mousename', mousename)
 
         return sorted(set(rows['mousekey']))
 
-    def get_neuro_data(self, coldict, trialType=None, cropTime=None):
+    def cropRSP(self, dataRSP, startTime, endTime):
+        startIdx = int(startTime * self.targetFreq)
+        endIdx = int(endTime * self.targetFreq)
+        return dataRSP[:, startIdx:endIdx]
+
+    def get_neuro_data(self, coldict, trialType=None, cropTime=None, zscoreDim=None):
         rows = self.get_rows('neuro', coldict)
 
         dataLst = []
         for idx, row in rows.iterrows():
+            dataRSP = self.dataNeuronal[idx]
+            dataRSP = zscore_dim_ord(dataRSP, 'rsp', zscoreDim)
+
             # Crop time to have uniform
-            if cropTime is None:
-                data = self.dataNeuronal[idx]
-            else:
-                data = self.dataNeuronal[idx][:, :cropTime]
+            if cropTime is not None:
+                dataRSP = self.cropRSP(dataRSP, *cropTime)
 
             # Extract necessary trials or all
             if trialType is not None:
                 assert trialType in ['iGO', 'iNOGO'], "Unexpected trial type"
                 idxsTrials = self.dataTrials[idx][trialType] - 1
-                data = data[idxsTrials]
+                dataRSP = dataRSP[idxsTrials]
 
-            dataLst += [data]
+            dataLst += [dataRSP]
 
         return dataLst
 

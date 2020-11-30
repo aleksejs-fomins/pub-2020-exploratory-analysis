@@ -11,7 +11,7 @@ from IPython.display import display
 from ipywidgets import IntProgress
 
 # Mesostat
-from mesostat.utils.pandas_helper import get_rows_colval, get_rows_colvals
+from mesostat.utils.pandas_helper import pd_rows_colval, pd_query
 from mesostat.utils.matlab_helper import loadmat
 from mesostat.utils.system import getfiles_walk
 from mesostat.utils.arrays import numpy_transpose_byorder
@@ -145,7 +145,7 @@ class DataFCDatabase :
 
 
     def get_rows(self, frameName, coldict):
-        return get_rows_colvals(self.metaDataFrames[frameName], coldict)
+        return pd_query(self.metaDataFrames[frameName], coldict)
 
 
     def label_plot_timestamps(self, ax, linecolor='y', textcolor='k', shX=-0.5, shY=0.05):
