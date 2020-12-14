@@ -154,3 +154,46 @@ def plot_metric_bulk_vs_session(dataDB, ds, metricName, trialTypeNames=None, yli
                 plt.ylim(ylim)
                 plt.savefig('pics/' + dataName + '.pdf')
                 plt.close()
+
+
+def plot_TC(dataDB, ds, ylim=None, yscale=None, verbose=True):
+    dummyMouseName = 'mvg_4'
+
+    dfAll = ds.list_dsets_pd()
+    for datatype in dataDB.get_data_types(dummyMouseName):
+        for performance in [None, 'naive', 'expert']:
+            for trialType in [None] + dataDB.get_trial_type_names(dummyMouseName):
+                dataNameChannel = '_'.join(['avg_entropy', 'time-channel', datatype, none2all(performance), none2all(trialType)])
+                dataNameBulk = '_'.join(['avg_entropy', 'time', datatype, none2all(performance), none2all(trialType)])
+                dataNameTC = '_'.join(['total_corr', 'time', datatype, none2all(performance), none2all(trialType)])
+
+                dfChannel = dfAll[dfAll['name'] == dataNameChannel]
+                dfChannel = dfChannel.sort_values(by=['mousename'])
+
+                dfBulk = dfAll[dfAll['name'] == dataNameBulk]
+                dfBulk = dfBulk.sort_values(by=['mousename'])
+
+                if verbose:
+                    print(dataNameChannel, dataNameBulk)
+
+                if len(dfChannel) != len(dfBulk):
+                    raise ValueError('Non-matching bulk and channel entropy storage', len(dfChannel), len(dfBulk))
+                if len(dfChannel) == 0:
+                    print('--Nothing found, skipping')
+                else:
+                    plt.figure()
+                    for (idxCh, rowCh), (idxB, rowB) in zip(dfChannel.iterrows(), dfBulk.iterrows()):
+                        dataCh = ds.get_data(rowCh['dset'])   # (nTime, nChannel)
+                        dataB = ds.get_data(rowB['dset'])     # (nTime, )
+
+                        avgTC = np.mean(dataCh, axis=1) - dataB
+
+                        plt.plot(np.arange(0, 8, 1 / 20), avgTC, label=rowCh['mousename'])
+
+                    if yscale is not None:
+                        plt.yscale(yscale)
+
+                    plt.legend()
+                    plt.ylim(ylim)
+                    plt.savefig('pics/' + dataNameTC + '.pdf')
+                    plt.close()
