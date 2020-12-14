@@ -147,6 +147,7 @@ def plot_metric_bulk_vs_session(dataDB, ds, metricName, trialTypeNames=None, yli
                 plt.figure()
                 for idx, row in dfThis.iterrows():
                     dataThis = ds.get_data(row['dset'])
+
                     plt.plot(dataThis, label=row['mousename'])
 
                 plt.legend()
