@@ -3,43 +3,46 @@ import matplotlib.pyplot as plt
 from IPython.display import display
 from ipywidgets import IntProgress
 
+from mesostat.utils.pandas_helper import pd_query, pd_move_cols_front
+
 from lib.sych.metric_helper import metric_by_session, metric_by_selector
 
 
-
 none2all = lambda x: x if x is not None else 'All'
+
+
+def auto2val(x, xNone, xAutoFunc):
+    if x is None:
+        return xNone
+    elif x == 'auto':
+        return xAutoFunc()  # Auto may be expensive or not defined for some cases, only call when needed
+    else:
+        return x
 
 
 def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
                       metricSettings=None, sweepSettings=None,
                       trialTypeNames=None, perfNames=None, cropTime=None, verbose=True):
 
-    mouseNameDummy = 'mvg_4'
-    perfNames = ['naive', 'expert'] if perfNames is None else perfNames
-    trialTypeNamesDummy = dataDB.get_trial_type_names(mouseNameDummy) if trialTypeNames is None else trialTypeNames
+    dataTypes      = dataDB.get_data_types()
+    perfNames      = auto2val(perfNames, [None], lambda : [None, 'naive', 'expert'])
+    trialTypeNames = auto2val(trialTypeNames, [None], lambda : [None] + list(dataDB.get_trial_type_names()))
 
-    nMice = len(dataDB.mice)
-    nDataType = len(dataDB.get_data_types(mouseNameDummy))
-    nPerf = 1 + len(perfNames)
-    nTrialTypes = 1 + len(trialTypeNamesDummy)
-    nTot = nMice * nDataType * nPerf * nTrialTypes
+    nTot = len(dataDB.mice) * len(dataTypes) * len(perfNames) * len(trialTypeNames)
     progBar = IntProgress(min=0, max=nTot, description=nameSuffix)
     display(progBar)  # display the bar
 
     for mousename in dataDB.mice:
-        for datatype in dataDB.get_data_types(mousename):
-            for performance in [None] + perfNames:
-                trialTypeNames = dataDB.get_trial_type_names(mousename) if trialTypeNames is None else trialTypeNames
-
-                for trialType in [None] + trialTypeNames:
-                    dataName = '_'.join([metricName, nameSuffix, datatype, none2all(performance), none2all(trialType)])
+        for datatype in dataTypes:
+            for performance in perfNames:
+                for trialType in trialTypeNames:
                     zscoreDim = 'rs' if datatype == 'raw' else None
 
                     if verbose:
-                        print(mousename, dataName)
+                        print(mousename, [metricName, nameSuffix, datatype, none2all(performance), none2all(trialType)])
 
                     metric_by_selector(dataDB, mc, ds, {'mousename': mousename}, metricName, dimOrdTrg,
-                                       dataName=dataName, datatype=datatype, trialType=trialType, cropTime=cropTime,
+                                       dataName=nameSuffix, datatype=datatype, trialType=trialType, cropTime=cropTime,
                                        performance=performance,
                                        zscoreDim=zscoreDim,
                                        metricSettings=metricSettings,
@@ -48,121 +51,85 @@ def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
                     progBar.value += 1
 
 
-def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, dimOrdTrg,
-                                 metricSettings=None, sweepSettings=None, trialTypeNames=None, verbose=True):
+def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
+                                 metricSettings=None, sweepSettings=None,
+                                 trialTypeNames=None, perfNames=None, verbose=True):
 
-    mouseNameDummy = 'mvg_4'
-    trialTypeNamesDummy = dataDB.get_trial_type_names(mouseNameDummy) if trialTypeNames is None else trialTypeNames
+    dataTypes      = dataDB.get_data_types()
+    perfNames      = auto2val(perfNames, [None], lambda : [None, 'naive', 'expert'])
+    trialTypeNames = auto2val(trialTypeNames, [None], lambda : [None] + list(dataDB.get_trial_type_names()))
 
-    nMice = len(dataDB.mice)
-    nDataType = len(dataDB.get_data_types(mouseNameDummy))
-    nPerf = 3
-    nTrialTypes = 1 + len(trialTypeNamesDummy)
-    nTot = nMice * nDataType * nPerf * nTrialTypes
+    nTot = len(dataDB.mice) * len(dataTypes) * len(perfNames) * len(trialTypeNames)
     progBar = IntProgress(min=0, max=nTot, description=metricName)
     display(progBar)  # display the bar
 
-
     for mousename in dataDB.mice:
-        for datatype in dataDB.get_data_types(mousename):
-            for performance in [None, 'naive', 'expert']:
-                trialTypeNames = dataDB.get_trial_type_names(mousename) if trialTypeNames is None else trialTypeNames
-
-                for trialType in [None] + trialTypeNames:
-                    dataName = '_'.join([metricName, 'session', datatype, none2all(performance), none2all(trialType)])
+        for datatype in dataTypes:
+            for performance in perfNames:
+                for trialType in trialTypeNames:
                     zscoreDim = 'rs' if datatype == 'raw' else None
 
                     if verbose:
-                        print(mousename, dataName)
+                        print(mousename, [metricName, nameSuffix, datatype, none2all(performance), none2all(trialType)])
 
                     metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
-                                      dataName=dataName, datatype=datatype, trialType=trialType,
+                                      dataName=nameSuffix, datatype=datatype, trialType=trialType,
                                       performance=performance,
                                       zscoreDim=zscoreDim,
                                       metricSettings=metricSettings,
                                       sweepSettings=sweepSettings)
 
 
-def plot_metric_bulk(dataDB, ds, metricName, nameSuffix, prepFunc=None, ylim=None, yscale=None, verbose=True):
-    dummyMouseName = 'mvg_4'
+def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, ylim=None, yscale=None, verbose=True, xFunc=None, dropCols=None):
+    # 1. Extract all results for this test
+    dfAll = ds.list_dsets_pd().fillna('None')
+    if dropCols is not None:
+        dfAll = dfAll.drop(dropCols, axis=1)
 
-    dfAll = ds.list_dsets_pd()
-    for datatype in dataDB.get_data_types(dummyMouseName):
-        for performance in [None, 'naive', 'expert']:
-            for trialType in [None] + dataDB.get_trial_type_names(dummyMouseName):
-                dataName = '_'.join([metricName, nameSuffix, datatype, none2all(performance), none2all(trialType)])
-                dfThis = dfAll[dfAll['name'] == dataName]
-                dfThis = dfThis.sort_values(by=['mousename'])
+    dfAnalysis = pd_query(dfAll, {'metric' : metricName, "name" : nameSuffix})
+    dfAnalysis = pd_move_cols_front(dfAnalysis, ['metric', 'name', 'mousename'])  # Move leading columns forwards for more informative printing/saving
 
-                if verbose:
-                    print(dataName)
+    # Loop over all other columns except mousename
+    colsExcl = list(set(dfAnalysis.columns) - {'mousename'})
+    for colVals, dfSub in dfAnalysis.groupby(colsExcl):
+        plt.figure()
 
-                if len(dfThis) == 0:
-                    print('--Nothing found, skipping')
-                else:
-                    plt.figure()
-                    for idx, row in dfThis.iterrows():
-                        dataThis = ds.get_data(row['dset'])
-                        if prepFunc is not None:
-                            dataThis = prepFunc(dataThis)
+        if verbose:
+            print(list(colVals))
 
-                        #                     if datatype == 'raw':
-                        #                         nTrialThis = dataDB.get_ntrial_bytype({'mousename' : row['mousename']}, trialType=trialType, performance=performance)
-                        #                         dataThis *= np.sqrt(48*nTrialThis)
-                        #                         print('--', row['mousename'], nTrialThis)
+        for idxMouse, rowMouse in dfSub.iterrows():
+            dataThis = ds.get_data(rowMouse['dset'])
 
-                        if nameSuffix == 'time':
-                            plt.plot(np.arange(0, 8, 1 / 20), dataThis, label=row['mousename'])
-                        else:
-                            plt.plot(dataThis, label=row['mousename'])
+            if prepFunc is not None:
+                dataThis = prepFunc(dataThis)
 
-                    if yscale is not None:
-                        plt.yscale(yscale)
+            #                     if datatype == 'raw':
+            #                         nTrialThis = dataDB.get_ntrial_bytype({'mousename' : row['mousename']}, trialType=trialType, performance=performance)
+            #                         dataThis *= np.sqrt(48*nTrialThis)
+            #                         print('--', row['mousename'], nTrialThis)
 
-                    plt.legend()
-                    plt.ylim(ylim)
-                    plt.savefig('pics/' + dataName + '.pdf')
-                    plt.close()
-
-
-def plot_metric_bulk_vs_session(dataDB, ds, metricName, trialTypeNames=None, ylim=None, verbose=True):
-    dummyMouseName = 'mvg_4'
-
-    dfAll = ds.list_dsets_pd()
-    for datatype in dataDB.get_data_types(dummyMouseName):
-        for performance in [None, 'naive', 'expert']:
-            if trialTypeNames is None:
-                trialTypeNamesThis = dataDB.get_trial_type_names(dummyMouseName)
+            if xFunc is None:
+                plt.plot(dataThis, label=rowMouse['mousename'])
             else:
-                trialTypeNamesThis = trialTypeNames
+                plt.plot(xFunc(len(dataThis)), dataThis, label=rowMouse['mousename'])
 
-            for trialType in [None] + trialTypeNamesThis:
-                dataName = '_'.join([metricName, 'session', datatype, none2all(performance), none2all(trialType)])
-                dfThis = dfAll[dfAll['name'] == dataName]
-                dfThis = dfThis.sort_values(by=['mousename'])
+        if yscale is not None:
+            plt.yscale(yscale)
 
-                if verbose:
-                    print(dataName, len(dfThis))
+        dataName = rowMouse.drop(['datetime', 'dset', 'shape', 'target_dim'])
+        dataName = '_'.join([str(el) for el in dataName])
 
-                plt.figure()
-                for idx, row in dfThis.iterrows():
-                    dataThis = ds.get_data(row['dset'])
-
-                    plt.plot(dataThis, label=row['mousename'])
-
-                plt.legend()
-                plt.ylim(ylim)
-                plt.savefig('pics/' + dataName + '.pdf')
-                plt.close()
+        plt.legend()
+        plt.ylim(ylim)
+        plt.savefig('pics/' + dataName + '.pdf')
+        plt.close()
 
 
 def plot_TC(dataDB, ds, ylim=None, yscale=None, verbose=True):
-    dummyMouseName = 'mvg_4'
-
     dfAll = ds.list_dsets_pd()
-    for datatype in dataDB.get_data_types(dummyMouseName):
+    for datatype in dataDB.get_data_types():
         for performance in [None, 'naive', 'expert']:
-            for trialType in [None] + dataDB.get_trial_type_names(dummyMouseName):
+            for trialType in [None] + dataDB.get_trial_type_names():
                 dataNameChannel = '_'.join(['avg_entropy', 'time-channel', datatype, none2all(performance), none2all(trialType)])
                 dataNameBulk = '_'.join(['avg_entropy', 'time', datatype, none2all(performance), none2all(trialType)])
                 dataNameTC = '_'.join(['total_corr', 'time', datatype, none2all(performance), none2all(trialType)])

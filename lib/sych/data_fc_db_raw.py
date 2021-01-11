@@ -35,6 +35,12 @@ class DataFCDatabase:
         print("Searching for data files")
         self._find_parse_neuro_files(param["root_path_data"])
 
+        print("Extracting trial type names")
+        self._extract_trial_type_names()
+
+        print("Extracting data types")
+        self._extract_data_types()
+
     def _find_parse_neuro_files(self, path):
         paths, names = getfiles_walk(path, ['raw', '.h5']).T
         paths = [os.path.join(path, fname) for path, fname in zip(paths, names)]
@@ -42,6 +48,18 @@ class DataFCDatabase:
 
         self.dataPathsDict = dict(zip(mice, paths))
         self.mice = set(mice)
+
+    def _extract_trial_type_names(self):
+        self.trialTypeNames = set()
+        for mousename in self.mice:
+            with h5py.File(self.dataPathsDict[mousename], 'r') as h5file:
+                self.trialTypeNames.update(self._get_trial_type_names_h5(h5file))
+
+    def _extract_data_types(self):
+        self.dataTypes = set()
+        for mousename in self.mice:
+            with h5py.File(self.dataPathsDict[mousename], 'r') as h5file:
+                self.dataTypes.update(self._get_data_types_h5(h5file))
 
     def _selector_to_mousename(self, selector):
         return selector['mousename'] if 'mousename' in selector else selector['session'][:5]
@@ -70,10 +88,14 @@ class DataFCDatabase:
     def _get_trial_type_names_h5(self, h5file):
         return [t.decode("utf-8") for t in h5file['trialTypeNames']]
 
-    def get_trial_type_names(self, mousename):
-        path = self.dataPathsDict[mousename]
-        with h5py.File(path, 'r') as h5file:
-            return self._get_trial_type_names_h5(h5file)
+    def _get_data_types_h5(self, h5file):
+        return [key[5:] for key in h5file.keys() if 'data_' in key]
+
+    def get_trial_type_names(self):
+        return self.trialTypeNames
+
+    def get_data_types(self):
+        return self.dataTypes
 
     # For given mouse file and session, get trial indices corresponding to trials of indicated type
     def get_trial_type_idxs_h5(self, h5file, session, trialType):
@@ -114,11 +136,6 @@ class DataFCDatabase:
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
             return self._get_sessions_h5(h5file, datatype=datatype, performance=performance)
-
-    def get_data_types(self, mousename):
-        path = self.dataPathsDict[mousename]
-        with h5py.File(path, 'r') as h5file:
-            return [key[5:] for key in h5file.keys() if 'data_' in key]
 
     def get_expert_session_idxs(self, mousename, expertThr=0.7):
         path = self.dataPathsDict[mousename]

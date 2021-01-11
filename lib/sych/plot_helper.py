@@ -1,12 +1,12 @@
 import matplotlib.pyplot as plt
 
-from mesostat.utils.plotting import imshow
+from mesostat.visualization.mpl_matrix import imshow
 
 
-def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None, cmap='jet', aspect=None, fig1size=(5,5)):
+def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None, cmap='jet', aspect=None, fig1size=(5,5), havePerf=True):
     resultDF = ds.list_dsets_pd()
 
-    fig, ax = plt.subplots(ncols=len(dataDB.mice), figsize=(fig1size[0] * len(dataDB.mice), fig1size[1]))
+    fig, ax = plt.subplots(ncols=len(dataDB.mice), figsize=(fig1size[0] * len(dataDB.mice), fig1size[1]), squeeze=False)
     fig.suptitle(dsetName)
     for iMouse, mousename in enumerate(sorted(dataDB.mice)):
         queryDict = {"mousename" : mousename, "name" : dsetName}
@@ -14,11 +14,12 @@ def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None
         shapeLabels = attrs['target_dim']
 
         # Plot data
-        imshow(fig, ax[iMouse], data.T, xlabel=shapeLabels[0], ylabel=shapeLabels[1], title=mousename, haveColorBar=True, limits=limits, cmap=cmap, aspect=aspect)
+        imshow(fig, ax[0][iMouse], data.T, xlabel=shapeLabels[0], ylabel=shapeLabels[1], title=mousename, haveColorBar=True, limits=limits, cmap=cmap, aspect=aspect)
 
-        thrIdx = dataDB.get_first_expert_session_idx(mousename)
-        if thrIdx is not None:
-            ax[iMouse].axvline(x=thrIdx, color='w', linestyle='--')
+        if havePerf:
+            thrIdx = dataDB.get_first_expert_session_idx(mousename)
+            if thrIdx is not None:
+                ax[0][iMouse].axvline(x=thrIdx, color='w', linestyle='--')
 
     plt.savefig(dsetName + plotNameSuffix + '.pdf')
     plt.show()

@@ -16,10 +16,13 @@ def dimord_to_labels(dimOrd):
 def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
                       dataName=None, cropTime=None, datatype=None, trialType=None, performance=None,
                       zscoreDim=None, timeWindow=None, metricSettings=None, sweepSettings=None):
-    if datatype is None:
-        dataLst = dataDB.get_neuro_data({'mousename': mousename}, trialType=trialType, zscoreDim=zscoreDim, cropTime=cropTime, performance=performance)
-    else:
-        dataLst = dataDB.get_neuro_data({'mousename': mousename}, trialType=trialType, zscoreDim=zscoreDim, cropTime=cropTime, datatype=datatype, performance=performance)
+
+    # Drop all arguments that were not specified
+    # In some use cases non-specified arguments are not implemented
+    kwargs = {'trialType': trialType, 'zscoreDim': zscoreDim, 'cropTime': cropTime, 'datatype': datatype, 'performance': performance}
+    kwargs = {k : v for k, v in kwargs.items() if v is not None}
+
+    dataLst = dataDB.get_neuro_data({'mousename': mousename}, **kwargs)
 
     rez = []
     progBar = IntProgress(min=0, max=len(dataLst), description=mousename)
@@ -32,10 +35,11 @@ def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
         progBar.value += 1
 
     attrsDict = {
+        **kwargs, **{
         'mousename': mousename,
         'metric': metricName,
         'target_dim': str(('sessions',) + dimord_to_labels(dimOrdTrg))
-    }
+    }}
 
     if dataName is None:
         dataName = metricName
@@ -47,10 +51,12 @@ def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
                       dataName=None, cropTime=None, datatype=None, trialType=None, performance=None,
                       zscoreDim=None, timeWindow=None, metricSettings=None, sweepSettings=None):
 
-    if datatype is None:
-        dataLst = dataDB.get_neuro_data(selector, trialType=trialType, cropTime=cropTime, zscoreDim=zscoreDim, performance=performance)
-    else:
-        dataLst = dataDB.get_neuro_data(selector, trialType=trialType, cropTime=cropTime, zscoreDim=zscoreDim, datatype=datatype, performance=performance)
+    # Drop all arguments that were not specified
+    # In some use cases non-specified arguments are not implemented
+    kwargs = {'trialType': trialType, 'zscoreDim': zscoreDim, 'cropTime': cropTime, 'datatype': datatype, 'performance': performance}
+    kwargs = {k : v for k, v in kwargs.items() if v is not None}
+
+    dataLst = dataDB.get_neuro_data(selector, **kwargs)
 
     dataRSP = np.concatenate(dataLst, axis=0)
 
@@ -63,7 +69,7 @@ def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
         rez = mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)
 
         attrsDict = {
-            **selector, **{
+            **kwargs, **selector, **{
             'metric': metricName,
             'target_dim': str(dimord_to_labels(dimOrdTrg))
         }}
