@@ -15,7 +15,7 @@ def dimord_to_labels(dimOrd):
 
 def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
                       dataName=None, cropTime=None, datatype=None, trialType=None, performance=None,
-                      zscoreDim=None, timeWindow=None, metricSettings=None, sweepSettings=None):
+                      zscoreDim=None, timeWindow=None, timeAvg=False, metricSettings=None, sweepSettings=None):
 
     # Drop all arguments that were not specified
     # In some use cases non-specified arguments are not implemented
@@ -30,7 +30,14 @@ def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
     for dataSession in dataLst:
         # Calculate stuff
         # IMPORTANT: DO NOT DO ZScore on cropped data at this point. ZScore is done on whole data during extraction
-        mc.set_data(dataSession, 'rsp', timeWindow=timeWindow)
+        if not timeAvg:
+            mc.set_data(dataSession, 'rsp', timeWindow=timeWindow)
+        else:
+            if timeWindow is not None:
+                raise ValueError('Time-averaging and timeWindow are incompatible')
+
+            mc.set_data(np.nanmean(dataSession, axis=1), 'rp')
+
         rez += [mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)]
         progBar.value += 1
 
@@ -49,7 +56,7 @@ def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
 
 def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
                       dataName=None, cropTime=None, datatype=None, trialType=None, performance=None,
-                      zscoreDim=None, timeWindow=None, metricSettings=None, sweepSettings=None):
+                      zscoreDim=None, timeWindow=None, timeAvg=False, metricSettings=None, sweepSettings=None):
 
     # Drop all arguments that were not specified
     # In some use cases non-specified arguments are not implemented
@@ -65,7 +72,14 @@ def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
     else:
         # Calculate stuff
         # IMPORTANT: DO NOT DO ZScore on cropped data at this point. ZScore is done on whole data during extraction
-        mc.set_data(dataRSP, 'rsp', timeWindow=timeWindow)
+        if not timeAvg:
+            mc.set_data(dataRSP, 'rsp', timeWindow=timeWindow)
+        else:
+            if timeWindow is not None:
+                raise ValueError('Time-averaging and timeWindow are incompatible')
+
+            mc.set_data(np.nanmean(dataRSP, axis=1), 'rp')
+
         rez = mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)
 
         attrsDict = {
