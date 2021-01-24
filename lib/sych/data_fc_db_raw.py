@@ -183,3 +183,16 @@ class DataFCDatabase:
                 dataLst += [dataRSP]
 
         return dataLst
+
+    def get_data_raw(self, session):
+        mousename = self._selector_to_mousename({"session": session})
+        path = self.dataPathsDict[mousename]
+        with h5py.File(path, 'r') as h5file:
+            data = np.array(h5file['data'][session])
+            trialIdxs = np.array(h5file['trialStartIdxs'][session])
+            interTrialStartIdxs = np.array(h5file['interTrialStartIdxs'][session])
+            fps = h5file['data'][session].attrs['FPS']
+            trialTypes = np.array(h5file['trialTypes'][session])
+            trialTypeNames = np.array([bb.decode('UTF8') for bb in h5file['trialTypeNames']])
+            trialTypes = trialTypeNames[trialTypes]
+            return data, trialIdxs, interTrialStartIdxs, fps, trialTypes
