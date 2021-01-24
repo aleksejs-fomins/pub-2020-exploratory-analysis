@@ -23,13 +23,13 @@ import lib.analysis.pid as pid
 
 # tmp_path = root_path_data if 'root_path_data' in locals() else "./"
 params = {}
-# params['root_path_data'] = './'
-params['root_path_data'] = '/media/alyosha/Data/TE_data/yarodata/sych_preprocessed'
-#params['root_path_data'] = gui_fpath('h5path', './')
+params['root_path_data'] = '/home/alfomi/data/sych_preprocessed'
+# params['root_path_data'] = '/media/alyosha/Data/TE_data/yarodata/sych_preprocessed'
+# params['root_path_data'] = gui_fpath('h5path', './')
 
 dataDB = DataFCDatabase(params)
 ds = DataStorage('sych_result_multiregional_df.h5')
-mc = MetricCalculator(serial=False, verbose=False, nCore=4)
+mc = MetricCalculator(serial=False, verbose=False) #, nCore=4)
 
 cropTimes = {'TEX' : (3.0, 3.5), 'REW' : (6.0, 6.5)}
 metricName = 'BivariateMI'
