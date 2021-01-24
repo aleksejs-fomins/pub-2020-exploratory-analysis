@@ -29,7 +29,7 @@ params['root_path_data'] = '/home/alfomi/data/sych_preprocessed'
 # params['root_path_data'] = gui_fpath('h5path', './')
 
 dataDB = DataFCDatabase(params)
-ds = DataStorage('sych_result_multiregional_pid_df.h5')
+h5outname = 'sych_result_multiregional_pid_df.h5'
 mc = MetricCalculator(serial=False, verbose=False) #, nCore=4)
 
 cropTimes = {'TEX' : (3.0, 3.5), 'REW' : (6.0, 6.5)}
@@ -47,11 +47,11 @@ for mousename in dataDB.mice:
 
                 rezLst = []
                 for iSrc1 in range(nChannels):
-                    for iSrc2 in range(iS1+1, nChannels):
+                    for iSrc2 in range(iSrc1+1, nChannels):
                         src1 = channelNames[iSrc1]
                         src2 = channelNames[iSrc2]
                         sources = [src1, src2]
-                        print(datetime.datetime.now().time(), datatype, session, intervKey, sources)
+                        print(datetime.now().time(), datatype, session, intervKey, sources)
 
                         targets = list(set(channelNames) - set(sources))
                         rezLst += [pid.pid(dataLst, mc, channelNames, sources, targets, nPerm=2000, nBin=4)]
