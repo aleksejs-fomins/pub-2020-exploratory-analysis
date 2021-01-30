@@ -34,7 +34,7 @@ mc = MetricCalculator(serial=True, verbose=False) #, nCore=4)
 
 cropTimes = {'TEX' : (3.0, 3.5), 'REW' : (6.0, 6.5)}
 
-for mousename in ['mvg_4']:  #dataDB.mice:
+for mousename in ['mvg_8']: #dataDB.mice:
     channelNames = dataDB.get_channel_labels(mousename)
     nChannels = len(channelNames)
     
