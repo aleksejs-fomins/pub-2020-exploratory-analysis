@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from IPython.display import display
 from ipywidgets import IntProgress
 
-from mesostat.utils.pandas_helper import pd_query, pd_move_cols_front
+from mesostat.utils.pandas_helper import pd_query, pd_move_cols_front, outer_product_df
 
 from lib.sych.metric_helper import metric_by_session, metric_by_selector
 
@@ -11,73 +11,86 @@ from lib.sych.metric_helper import metric_by_session, metric_by_selector
 none2all = lambda x: x if x is not None else 'All'
 
 
-def auto2val(x, xNone, xAutoFunc):
-    if x is None:
-        return xNone
-    elif x == 'auto':
-        return xAutoFunc()  # Auto may be expensive or not defined for some cases, only call when needed
-    else:
-        return x
+# Switch between 3 cases:
+#    If x is None, do nothing
+#    If x='auto', use provided function result for the dictionary element
+#    Otherwise, use provided x value for the dictionary element
+def _dict_append_auto(d, key, x, xAutoFunc):
+    if x == 'auto':
+        d[key] = xAutoFunc()  # Auto may be expensive or not defined for some cases, only call when needed
+    elif x is not None:
+        d[key] = x
 
 
 def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
-                      metricSettings=None, sweepSettings=None,
+                      metricSettings=None, sweepSettings=None, dataTypes='auto',
                       trialTypeNames=None, perfNames=None, cropTime=None, verbose=True):
 
-    dataTypes      = dataDB.get_data_types()
-    perfNames      = auto2val(perfNames, [None], lambda : [None, 'naive', 'expert'])
-    trialTypeNames = auto2val(trialTypeNames, [None], lambda : [None] + list(dataDB.get_trial_type_names()))
+    argSweepDict = {'mousename' : dataDB.mice}
+    _dict_append_auto(argSweepDict, 'datatype', dataTypes, dataDB.get_data_types)
+    _dict_append_auto(argSweepDict, 'performance', perfNames, lambda : [None, 'naive', 'expert'])
+    _dict_append_auto(argSweepDict, 'trialType', trialTypeNames, lambda : [None] + list(dataDB.get_trial_type_names()))
+    sweepDF = outer_product_df(argSweepDict)
 
-    nTot = len(dataDB.mice) * len(dataTypes) * len(perfNames) * len(trialTypeNames)
-    progBar = IntProgress(min=0, max=nTot, description=nameSuffix)
+    progBar = IntProgress(min=0, max=len(sweepDF), description=nameSuffix)
     display(progBar)  # display the bar
 
-    for mousename in dataDB.mice:
-        for datatype in dataTypes:
-            for performance in perfNames:
-                for trialType in trialTypeNames:
-                    zscoreDim = 'rs' if datatype == 'raw' else None
+    for idx, row in sweepDF.iterrows():
+        kwargs = dict(row)
+        del kwargs['mousename']
 
-                    if verbose:
-                        print(mousename, [metricName, nameSuffix, datatype, none2all(performance), none2all(trialType)])
+        zscoreDim = 'rs' if kwargs['datatype'] == 'raw' else None
 
-                    metric_by_selector(dataDB, mc, ds, {'mousename': mousename}, metricName, dimOrdTrg,
-                                       dataName=nameSuffix, datatype=datatype, trialType=trialType, cropTime=cropTime,
-                                       performance=performance,
-                                       zscoreDim=zscoreDim,
-                                       metricSettings=metricSettings,
-                                       sweepSettings=sweepSettings)
+        if verbose:
+            print(metricName, nameSuffix, kwargs)
 
-                    progBar.value += 1
+        metric_by_selector(dataDB, mc, ds, {'mousename': row['mousename']}, metricName, dimOrdTrg,
+                           dataName=nameSuffix, cropTime=cropTime,
+                           # datatype=datatype,
+                           # trialType=trialType,
+                           # performance=performance,
+                           zscoreDim=zscoreDim,
+                           metricSettings=metricSettings,
+                           sweepSettings=sweepSettings,
+                           **kwargs)
+
+        progBar.value += 1
 
 
-def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
-                                 metricSettings=None, sweepSettings=None,
-                                 trialTypeNames=None, perfNames=None, verbose=True):
+def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix,
+                                 metricSettings=None, sweepSettings=None, dataTypes='auto',
+                                 trialTypeNames=None, perfNames=None, cropTime=None, verbose=True):
 
-    dataTypes      = dataDB.get_data_types()
-    perfNames      = auto2val(perfNames, [None], lambda : [None, 'naive', 'expert'])
-    trialTypeNames = auto2val(trialTypeNames, [None], lambda : [None] + list(dataDB.get_trial_type_names()))
 
-    nTot = len(dataDB.mice) * len(dataTypes) * len(perfNames) * len(trialTypeNames)
-    progBar = IntProgress(min=0, max=nTot, description=metricName)
+    argSweepDict = {'mousename' : dataDB.mice}
+    _dict_append_auto(argSweepDict, 'datatype', dataTypes, dataDB.get_data_types)
+    _dict_append_auto(argSweepDict, 'performance', perfNames, lambda : [None, 'naive', 'expert'])
+    _dict_append_auto(argSweepDict, 'trialType', trialTypeNames, lambda : [None] + list(dataDB.get_trial_type_names()))
+    sweepDF = outer_product_df(argSweepDict)
+
+    progBar = IntProgress(min=0, max=len(sweepDF), description=nameSuffix)
     display(progBar)  # display the bar
 
-    for mousename in dataDB.mice:
-        for datatype in dataTypes:
-            for performance in perfNames:
-                for trialType in trialTypeNames:
-                    zscoreDim = 'rs' if datatype == 'raw' else None
+    for idx, row in sweepDF.iterrows():
+        kwargs = dict(row)
+        del kwargs['mousename']
 
-                    if verbose:
-                        print(mousename, [metricName, nameSuffix, datatype, none2all(performance), none2all(trialType)])
+        zscoreDim = 'rs' if kwargs['datatype'] == 'raw' else None
 
-                    metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
-                                      dataName=nameSuffix, datatype=datatype, trialType=trialType,
-                                      performance=performance,
-                                      zscoreDim=zscoreDim,
-                                      metricSettings=metricSettings,
-                                      sweepSettings=sweepSettings)
+        if verbose:
+            print(metricName, nameSuffix, kwargs)
+
+        metric_by_session(dataDB, mc, ds, row['mousename'], metricName, '',
+                          dataName=nameSuffix,
+                          # datatype=datatype,
+                          # trialType=trialType,
+                          # performance=performance,
+                          zscoreDim=zscoreDim,
+                          metricSettings=metricSettings,
+                          sweepSettings=sweepSettings, timeAvg=True, cropTime=cropTime,
+                          **kwargs)
+
+        progBar.value += 1
 
 
 def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, ylim=None, yscale=None, verbose=True, xFunc=None, dropCols=None):
@@ -125,6 +138,7 @@ def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, ylim=None, yscal
         plt.close()
 
 
+# TODO: Replace nested for with pandas iterator. Make sure None arguments are not iterated over
 def plot_TC(dataDB, ds, ylim=None, yscale=None, verbose=True):
     dfAll = ds.list_dsets_pd()
     for datatype in dataDB.get_data_types():

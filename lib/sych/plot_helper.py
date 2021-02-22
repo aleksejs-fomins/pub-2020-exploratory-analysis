@@ -1,9 +1,11 @@
+import numpy as np
 import matplotlib.pyplot as plt
 
 from mesostat.visualization.mpl_matrix import imshow
 
 
-def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None, cmap='jet', aspect=None, fig1size=(5,5), havePerf=True):
+def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None, cmap='jet',
+                            aspect=None, fig1size=(5,5), havePerf=True, dropX=None, dropY=None):
     resultDF = ds.list_dsets_pd()
 
     fig, ax = plt.subplots(ncols=len(dataDB.mice), figsize=(fig1size[0] * len(dataDB.mice), fig1size[1]), squeeze=False)
@@ -13,8 +15,15 @@ def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None
         data, attrs = ds.get_data_recent_by_query(queryDict, listDF=resultDF)
         shapeLabels = attrs['target_dim']
 
+        mat = data.T
+        print(mat.shape)
+        if dropX:
+            mat[dropX] = np.nan
+        if dropY:
+            mat[:, dropY] = np.nan
+
         # Plot data
-        imshow(fig, ax[0][iMouse], data.T, xlabel=shapeLabels[0], ylabel=shapeLabels[1], title=mousename, haveColorBar=True, limits=limits, cmap=cmap, aspect=aspect)
+        imshow(fig, ax[0][iMouse], mat, xlabel=shapeLabels[0], ylabel=shapeLabels[1], title=mousename, haveColorBar=True, limits=limits, cmap=cmap, aspect=aspect)
 
         if havePerf:
             thrIdx = dataDB.get_first_expert_session_idx(mousename)

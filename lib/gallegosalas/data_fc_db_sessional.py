@@ -139,6 +139,9 @@ class DataFCDatabase:
         else:
             print("No Neuro files loaded, skipping reading part")
 
+    def _get_rows(self, frameName, coldict):
+        return pd_query(self.metaDataFrames[frameName], coldict)
+
     def baseline_normalization(self):
         '''
             Compute baseline-normalized data, add to storage
@@ -146,7 +149,7 @@ class DataFCDatabase:
         metaDFExtra = pd.DataFrame()
 
         for mousename in self.mice:
-            rows = self.get_rows('neuro', {'mousename' : mousename, 'datatype' : 'raw'})
+            rows = self._get_rows('neuro', {'mousename' : mousename, 'datatype' : 'raw'})
             for idx, row in rows.iterrows():
                 times, data = self.get_data_by_idx(idx)
 
@@ -184,8 +187,14 @@ class DataFCDatabase:
     def get_data_types(self):
         return list(set(self.metaDataFrames['neuro']['datatype']))
 
-    def get_n_data_types(self):
-        return len(self.get_data_types())
+    def get_channel_labels(self, mousename):
+        return self.channelLabels
+
+    def get_nchannels(self, mousename):
+        return len(self.get_channel_labels(mousename))
+
+    def get_sessions(self, mousename):
+        return self.sessions
 
     # If window greater than 1 is provided, return timesteps of data sweeped with a moving window of that length
     def get_times(self, nTime, window=1):
@@ -193,9 +202,6 @@ class DataFCDatabase:
             return np.arange(nTime) / self.targetFreq
         else:
             return (np.arange(nTime - window + 1) + (window - 1) / 2) / self.targetFreq
-
-    def get_rows(self, frameName, coldict):
-        return pd_query(self.metaDataFrames[frameName], coldict)
 
     # FIXME: Hardcoded nTime second. Make sure it works for any canonical dim order
     def get_data_by_idx(self, idx):
@@ -205,7 +211,7 @@ class DataFCDatabase:
         return times, data
 
     def get_neuro_data(self, selector, datatype='dff_raw', zscoreDim=None, cropTime=None): #, trialType=None, performance=None):
-        rows = self.get_rows('neuro', {**selector, **{'datatype' : datatype}})
+        rows = self._get_rows('neuro', {**selector, **{'datatype' : datatype}})
 
         dataLst = []
         for idx, row in rows.iterrows():

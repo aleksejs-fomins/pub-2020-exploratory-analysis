@@ -14,12 +14,16 @@ def dimord_to_labels(dimOrd):
 
 
 def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
-                      dataName=None, cropTime=None, datatype=None, trialType=None, performance=None,
-                      zscoreDim=None, timeWindow=None, timeAvg=False, metricSettings=None, sweepSettings=None):
+                      dataName=None, cropTime=None,
+                      # datatype=None, trialType=None, performance=None, zscoreDim=None,
+                      timeWindow=None, timeAvg=False, metricSettings=None, sweepSettings=None, **kwargs):
 
     # Drop all arguments that were not specified
     # In some use cases non-specified arguments are not implemented
-    kwargs = {'trialType': trialType, 'zscoreDim': zscoreDim, 'cropTime': cropTime, 'datatype': datatype, 'performance': performance}
+    # kwargs = {'trialType': trialType, 'zscoreDim': zscoreDim, 'datatype': datatype, 'performance': performance}
+    if cropTime is not None:
+        kwargs['cropTime'] = cropTime[1]
+
     kwargs = {k : v for k, v in kwargs.items() if v is not None}
 
     dataLst = dataDB.get_neuro_data({'mousename': mousename}, **kwargs)
@@ -41,6 +45,8 @@ def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
         rez += [mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)]
         progBar.value += 1
 
+    if cropTime is not None:
+        kwargs['cropTime'] = cropTime[0]
     attrsDict = {
         **kwargs, **{
         'mousename': mousename,
@@ -55,20 +61,23 @@ def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
 
 
 def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
-                      dataName=None, cropTime=None, datatype=None, trialType=None, performance=None,
-                      zscoreDim=None, timeWindow=None, timeAvg=False, metricSettings=None, sweepSettings=None):
+                      dataName=None, cropTime=None,
+                       # datatype=None, trialType=None, performance=None, zscoreDim=None,
+                       timeWindow=None, timeAvg=False, metricSettings=None, sweepSettings=None, **kwargs):
 
     # Drop all arguments that were not specified
     # In some use cases non-specified arguments are not implemented
-    kwargs = {'trialType': trialType, 'zscoreDim': zscoreDim, 'cropTime': cropTime, 'datatype': datatype, 'performance': performance}
+    #kwargs = {'trialType': trialType, 'zscoreDim': zscoreDim, 'datatype': datatype, 'performance': performance}
+    if cropTime is not None:
+        kwargs['cropTime'] = cropTime[1]
+
     kwargs = {k : v for k, v in kwargs.items() if v is not None}
 
     dataLst = dataDB.get_neuro_data(selector, **kwargs)
-
     dataRSP = np.concatenate(dataLst, axis=0)
 
     if (len(dataLst) == 0) or len(dataRSP) == 0:
-        print('for', selector, trialType, performance, 'there are no trials, skipping')
+        print('for', selector, kwargs, 'there are no trials, skipping')
     else:
         # Calculate stuff
         # IMPORTANT: DO NOT DO ZScore on cropped data at this point. ZScore is done on whole data during extraction
@@ -82,6 +91,8 @@ def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
 
         rez = mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)
 
+        if cropTime is not None:
+            kwargs['cropTime'] = cropTime[0]
         attrsDict = {
             **kwargs, **selector, **{
             'metric': metricName,

@@ -2,6 +2,7 @@ import numpy as np
 
 from mesostat.utils.system import date_diff
 
+
 # Performance is true positive + true negative frequency
 def mouse_performance_single_session(nTrial, behaviour):
     nTrialGO = len(behaviour['iGO'])

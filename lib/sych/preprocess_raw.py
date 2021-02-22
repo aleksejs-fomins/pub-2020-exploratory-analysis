@@ -11,6 +11,8 @@ from mesostat.utils.matlab_helper import loadmat
 from mesostat.utils.signals import downsample_int
 from lib.sych.data_read import read_neuro_perf
 
+from sklearn.metrics import r2_score
+
 
 def h5_overwrite_group(h5file, groupName, **kwargs):
     if groupName in h5file.keys():
@@ -206,6 +208,26 @@ def pooled_mark_channel_labels(dfRawH5, dfLabels):
         with h5py.File(pathH5, 'a') as h5file:
             if 'channelLabels' not in h5file.keys():
                 h5file.create_dataset('channelLabels', data=M['channel_labels'].astype('S'))
+
+
+def update_channel_labels_unique(dfRawH5):
+    for idx, row in dfRawH5.iterrows():
+        with h5py.File(row['path'], 'a') as h5file:
+            labelsDict = {}
+            labels = [l.decode('UTF8') for l in h5file['channelLabels']]
+            labelsNew = []
+
+            for l in labels:
+                if l not in labelsDict:
+                    labelsDict[l] = 0
+                    labelsNew += [l]
+                else:
+                    labelsDict[l] += 1
+                    labelsNew += [l + '_' + str(labelsDict[l])]
+
+            del h5file['channelLabels']
+            h5file['channelLabels'] = np.array(labelsNew).astype('S')
+            print(labelsNew)
 
 
 ###########################
@@ -614,6 +636,9 @@ def poly_fit_discrete_parameter_selection(y, ordMax=5):
     relResidualNorms = []
     normOld = np.linalg.norm(y)
     for ord in range(0, ordMax+1):
+        # yfit = poly_fit_transform(np.arange(len(y)), y, ord)
+        # relResidualNorms += [r2_score(y, yfit)]
+
         resThis = poly_fit_discrete_residual(y, ord)
         normThis = np.linalg.norm(resThis)
         relResidualNorms += [1 - normThis / normOld]
@@ -639,24 +664,53 @@ def pooled_plot_background_polyfit_residuals(dfRawH5, ordMax=5):
                 plt.show()
 
 
+def poly_view_fit(dfRawH5, session, channel, ord, onlyTrials=False, onlySelected=False):
+    path = pooled_get_path_session(dfRawH5, session)
+    with h5py.File(path, 'r') as h5file:
+        data = np.copy(h5file['data'][session][:, channel])
+        if onlyTrials:
+            x, data = data_mark_trials(h5file, session, data=data, tmin=-2, tmax=8, onlySelected=onlySelected)
+        else:
+            x = np.arange(len(data))
+
+        print(len(data))
+
+        dataFit = poly_fit_transform(x, data, ord)
+        fig, ax = plt.subplots(ncols=3, figsize=(12,4))
+        ax[0].plot(x, data)
+        ax[0].plot(x, dataFit)
+        ax[1].plot(x, data-dataFit)
+        ax[2].plot(x, data/dataFit - 1)
+        plt.show()
+
+
 ###############################
 # Baseline Normalization
 ###############################
 
-def get_trial_data(h5file, session, tmin=-2, tmax=8, onlySelected=True):
-    data = h5file['data'][session]
+# Return data partitioned into trials
+def data_partition_trials(h5file, session, data=None, tmin=-2, tmax=8, onlySelected=True):
+    if data is None:
+        data = np.copy(h5file['data'][session])
     startIdxs = np.array(h5file['trialStartIdxs'][session])
     FPS = h5file['data'][session].attrs['FPS']
-
-    # Baseline-subtract data
-    # dataSub = np.array([poly_fit_discrete_residual(data[:, iCh], 2) for iCh in range(48)]).T
-
-    preSh = startIdxs + int(tmin * FPS)
-    postSh = startIdxs + int(tmax * FPS)
-    dataTrials = np.array([data[l:r] for l, r in zip(preSh, postSh)])
-
-
     trialTypesAll = np.array(h5file['trialTypes'][session])
+
+    minFPS = int(tmin * FPS)
+    maxFPS = int(tmax * FPS)
+    preSh = startIdxs + minFPS
+    postSh = startIdxs + maxFPS
+    dataTrials = [data[l:r] for l, r in zip(preSh, postSh)]
+
+    # Pad some trials if they cut abruptly
+    trgLen = maxFPS - minFPS
+    for i in range(len(dataTrials)):
+        trueLen = len(dataTrials[i])
+        if trueLen != trgLen:
+            print('--Warning: trial', i, 'too short have =', trueLen, 'need', trgLen, '; padding' )
+            dataTrials[i] = np.vstack([dataTrials[i], np.zeros((trgLen-trueLen, data.shape[1]))])
+    dataTrials = np.array(dataTrials)
+
     if onlySelected:
         trialIdxs = trialTypesAll >= 0
         dataTrials = dataTrials[trialIdxs]
@@ -671,11 +725,42 @@ def get_trial_data(h5file, session, tmin=-2, tmax=8, onlySelected=True):
     return t, dataTrials, trialTypesSelected
 
 
+# Return a single time-sequence with non-trial datapoints dropped
+# Return the timesteps axis to note which datapoints were kept
+#   Note: we do not convert timestep idxs to times, so they can be comfortably used later for indexing
+def data_mark_trials(h5file, session, data=None, tmin=-2, tmax=8, onlySelected=True):
+    if data is None:
+        data = np.copy(h5file['data'][session])
+    startIdxs = np.array(h5file['trialStartIdxs'][session])
+    FPS = h5file['data'][session].attrs['FPS']
+    trialTypesAll = np.array(h5file['trialTypes'][session])
+
+    nData = len(data)
+    minFPS = int(tmin * FPS)
+    maxFPS = int(tmax * FPS)
+
+    if onlySelected:
+        trialIdxs = np.where(trialTypesAll >= 0)[0]
+    else:
+        trialIdxs = np.arange(len(startIdxs))
+
+    xTrials = []
+    yTrials = []
+    for iTrial in trialIdxs:
+        l = startIdxs[iTrial] + minFPS
+        r = np.min([startIdxs[iTrial] + maxFPS, nData])   # Some trials exceed total trial time
+
+        xTrials += [np.arange(l, r)]
+        yTrials += [data[l:r]]
+
+    return np.concatenate(xTrials, axis=0), np.concatenate(yTrials, axis=0)
+
+
 def check_pre_trial_activity_small(dfRawH5):
     for idx, row in dfRawH5.iterrows():
         with h5py.File(row['path'], 'r') as h5file:
             for session in list(h5file['data'].keys()):
-                t, dataTrials, _ = get_trial_data(h5file, session, tmin=-2, tmax=8)
+                t, dataTrials, _ = data_partition_trials(h5file, session, tmin=-2, tmax=8)
                 dataMu = np.mean(dataTrials, axis=0)
 
                 # Subtract mean pre-trial activity over session for each channel
@@ -718,35 +803,90 @@ def baseline_normalization(t, data3D, method):
         return t[timesPost], dataRez
 
 
-def extract_store_trial_data(dfRawH5, baselineMethod='raw', targetFPS=20):
-    dataName = 'data_' + baselineMethod
+def extract_store_trial_data(dfRawH5, targetFPS=20, bgOrd=2,
+                             fitOnlySelectedTrials=True, keepExisting=True, targetSessions=None, cropTimestep=None):
+    nChannel = 48
+    baselineMethods = ['raw', 'bn_session', 'bn_trial']
 
     for idx, row in dfRawH5.iterrows():
         with h5py.File(row['path'], 'a') as h5file:
-            if dataName in h5file.keys():
-                del h5file[dataName]
-            h5file.create_group(dataName)
+            dataNames = {}
+            for baselineMethod in baselineMethods:
+                dataName = 'data_' + baselineMethod
+                dataNames[baselineMethod] = dataName
+                if dataName in h5file.keys():
+                    if (not keepExisting) and (targetSessions is None):
+                        del h5file[dataName]
+                        h5file.create_group(dataName)
+                else:
+                    h5file.create_group(dataName)
 
             if 'trialTypesSelected' not in h5file.keys():
                 h5file.create_group('trialTypesSelected')
 
-            for session in h5file['data'].keys():
+            sessions = h5file['data'].keys()
+            if targetSessions is not None:
+                sessions = set(sessions).intersection(set(targetSessions))
+
+            for session in sessions:
                 print(session)
 
-                t, dataSession, trialTypesSelected = get_trial_data(h5file, session, tmin=-2, tmax=8)
+                doneAll = np.all([session in h5file[dataName].keys() for dataName in dataNames.values()])
+                if doneAll and keepExisting:
+                    print('all done, skipping')
+                else:
+                    # Get Data
+                    data = np.copy(h5file['data'][session][:, :nChannel])
 
-                tPost, dataTrial = baseline_normalization(t, dataSession[:, :, :48], baselineMethod)
+                    # Perform background subtraction
+                    if fitOnlySelectedTrials:
+                        # Fit polynomial only to parts of the trial that are relevant
+                        dataBG = np.copy(data)
+                        xIdxs, y = data_mark_trials(h5file, session, data=data, tmin=-2, tmax=8, onlySelected=True)
+                        for iChannel in range(nChannel):
+                            yFit = poly_fit_transform(xIdxs, y[:, iChannel], bgOrd)
+                            dataBG[xIdxs, iChannel] = yFit
+                    else:
+                        # Fit polynomial to entire trial
+                        dataBG = np.zeros(data.shape)
+                        for iChannel in range(nChannel):
+                            xIdxs = np.arange(len(data))
+                            dataBG[:, iChannel] = poly_fit_transform(xIdxs, data[:, iChannel], bgOrd)
 
-                FPS = h5file['data'][session].attrs['FPS']
-                if FPS != targetFPS:
-                    print('--downsampling', FPS, dataTrial.shape)
+                    dataRaw = data - dataBG
+                    dataDFFSession = dataRaw / dataBG
+                    dataDFFTrial = data
 
-                    nTimesDownsample = FPS // targetFPS
-                    dataTrial = dataTrial.transpose((1,0,2))
-                    t2, dataTrial = downsample_int(tPost, dataTrial, nTimesDownsample)
-                    dataTrial = dataTrial.transpose((1,0,2))
+                    dataDict = {
+                        'raw' : dataRaw,
+                        'bn_session': dataDFFSession,
+                        'bn_trial': dataDFFTrial,
+                    }
 
-                h5file[dataName].create_dataset(session, data=dataTrial)
+                    for baselineMethod, dataMethod in dataDict.items():
+                        print('--', baselineMethod)
 
-                if session not in h5file['trialTypesSelected'].keys():
-                    h5file['trialTypesSelected'].create_dataset(session, data=trialTypesSelected)
+                        # Slice data into trials
+                        # IMPORTANT: must use background-subtracted data
+                        t, dataSession, trialTypesSelected = data_partition_trials(h5file, session, data=dataMethod, tmin=-2, tmax=8)
+
+                        # Perform baseline normalization
+                        baselineMethodEff = 'raw' if baselineMethod != 'bn_trial' else 'bn_trial'
+                        tPost, dataTrial = baseline_normalization(t, dataSession, baselineMethodEff)
+
+                        # Downsample the result if does not match target FPS
+                        FPS = h5file['data'][session].attrs['FPS']
+                        if FPS != targetFPS:
+                            print('--downsampling', FPS, dataTrial.shape)
+
+                            nTimesDownsample = FPS // targetFPS
+                            dataTrial = dataTrial.transpose((1,0,2))
+                            t2, dataTrial = downsample_int(tPost, dataTrial, nTimesDownsample)
+                            dataTrial = dataTrial.transpose((1,0,2))
+
+                        # Store trial data
+                        h5file[dataNames[baselineMethod]].create_dataset(session, data=dataTrial)
+
+                        # Store selected trial types
+                        if session not in h5file['trialTypesSelected'].keys():
+                            h5file['trialTypesSelected'].create_dataset(session, data=trialTypesSelected)

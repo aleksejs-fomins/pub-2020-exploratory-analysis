@@ -137,6 +137,12 @@ class DataFCDatabase:
         with h5py.File(path, 'r') as h5file:
             return self._get_sessions_h5(h5file, datatype=datatype, performance=performance)
 
+    def get_performance(self, session):
+        mousename = self._selector_to_mousename({'session' : session})
+        path = self.dataPathsDict[mousename]
+        with h5py.File(path, 'r') as h5file:
+            return float(np.array(h5file['performance'][session]))
+
     def get_expert_session_idxs(self, mousename, expertThr=0.7):
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
@@ -188,7 +194,7 @@ class DataFCDatabase:
         mousename = self._selector_to_mousename({"session": session})
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
-            data = np.array(h5file['data'][session])
+            data = np.copy(h5file['data'][session])
             trialIdxs = np.array(h5file['trialStartIdxs'][session])
             interTrialStartIdxs = np.array(h5file['interTrialStartIdxs'][session])
             fps = h5file['data'][session].attrs['FPS']
