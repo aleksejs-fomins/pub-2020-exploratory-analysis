@@ -35,7 +35,7 @@ for mousename in ['mvg_7']:  # dataDB.mice:
     channelNames = dataDB.get_channel_labels(mousename)
     nChannels = len(channelNames)
 
-    for datatype in ['bn_session', 'bn_trial']:
+    for datatype in ['bn_session']:
         for session in dataDB.get_sessions(mousename, datatype=datatype):
             for intervKey, interv in cropTimes.items():
                 dataLabel = '_'.join(['PID', mousename, datatype, session, intervKey])

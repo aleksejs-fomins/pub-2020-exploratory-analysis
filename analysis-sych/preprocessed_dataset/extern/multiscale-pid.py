@@ -1,4 +1,5 @@
 # Standard libraries
+import h5py
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -31,11 +32,15 @@ mc = MetricCalculator(serial=True, verbose=False) #, nCore=4)
 
 cropTimes = {'TEX' : (3.0, 3.5), 'REW' : (6.0, 6.5)}
 
+if not os.path.isfile(h5outname):
+    with h5py.File(h5outname, 'w') as f:
+        pass
+
 for mousename in ['mvg_4']:  #dataDB.mice:
     channelNames = dataDB.get_channel_labels(mousename)
     nChannels = len(channelNames)
     
-    for datatype in ['bn_session', 'bn_trial']:
+    for datatype in ['bn_session']:
         for session in dataDB.get_sessions(mousename, datatype=datatype):
             for intervKey, interv in cropTimes.items():
                 dataLabel = '_'.join(['PID', mousename, datatype, session, intervKey])
