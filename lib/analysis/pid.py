@@ -8,11 +8,13 @@ from collections import defaultdict
 from mesostat.metric.idtxl_pid import bivariate_pid_3D
 from mesostat.utils.pandas_helper import pd_append_row, pd_query, merge_df_from_dict
 from mesostat.utils.signals import bin_data
-from mesostat.stat.permtests import percentile_twosided, perm_test_resample
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
 from mesostat.visualization.mpl_violin import violins_labeled
 from mesostat.visualization.mpl_cdf import cdf_labeled
-from mesostat.visualization.mpl_barplot import barplot_labeled
+from mesostat.visualization.mpl_barplot import barplot_labeled, barplot_stacked
+from mesostat.stat.permtests import percentile_twosided, perm_test_resample
+from mesostat.stat.moments import n_largest_indices
+
 
 '''
 Hypothesis-plots:
@@ -405,57 +407,123 @@ def plot_all_frac_significant_performance_scatter(dataDB, h5fname):
         plt.close()
 
 
+def _get_pid_mat3D_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes):
+    mat3DmouseDict = defaultdict(dict)
+
+    for mousename, dfSession2 in dfSession.groupby(['mousename']):  # 'mousename'
+        print(keyLabel, mousename)
+        channelLabels = dataDB.get_channel_labels(mousename)
+        nChannels = len(channelLabels)
+
+        for pidType in pidTypes:
+            mat3DmouseDict[pidType][mousename] = np.zeros((nChannels, nChannels, nChannels))
+
+        for idx, row in dfSession2.iterrows():
+            df1 = pd.read_hdf(h5fname, key=row['key'])
+
+            # Merge Unique1 and Unique2 for this plot
+            df1.replace({'PID': {'U1': 'unique', 'U2': 'unique'}}, inplace=True)
+
+            # Convert all channel labels to indices
+            for iCh, ch in enumerate(channelLabels):
+                df1.replace({'S1': {ch: iCh}, 'S2': {ch: iCh}, 'T': {ch: iCh}})
+
+            for pidType in pidTypes:
+                df1PID = df1[df1['PID'] == pidType]
+                df1Sig = df1PID[df1PID['p'] < 0.01]
+
+                for idx, row in df1Sig.iterrows():
+                    x, y, z = row['S1'], row['S2'], row['T']
+                    mat3DmouseDict[pidType][mousename][x, y, z] += 1
+
+    return mat3DmouseDict
+
+
+def _plt_all_top_n_triplets(dataDB, mat3DmouseDict, keyLabel, pidTypes, nTop=10):
+    # FIXME: Currently relies on same dimension ordering for all mice
+    channelLabels = dataDB.get_channel_labels(dataDB.mice[0])
+
+    fig, ax = plt.subplots(ncols=len(pidTypes), figsize=(len(pidTypes) * 4, 4), tight_layout=True)
+    for iPid, pidType in enumerate(pidTypes):
+        # 1) Sum all mouse arrays
+        mat3D = np.sum(list(mat3DmouseDict[pidType].values()), axis=0)
+
+        # 2) Find indices of largest values
+        # 3) For each index, get channel names and values by mouse
+        maxIdxs = n_largest_indices(mat3D, nTop)
+        maxLabels = ['_'.join([channelLabels[i] for i in idx]) for idx in maxIdxs]
+
+        rezDict = {
+            'mouse': [],
+            'channel': [],
+            'values': []
+        }
+
+        for mousename in dataDB.mice:
+            mat3DThis = mat3DmouseDict[pidType][mousename]
+            rezDict['mouse'] += [mousename] * nTop
+            rezDict['channel'] += maxLabels
+            rezDict['values'] += [mat3DThis[idx] for idx in maxIdxs]
+
+        # 4) Plot stacked barplot with absolute numbers. Set ylim_max to total number of sessions
+        barplot_stacked(ax[iPid], pd.DataFrame(rezDict), 'channel', 'mouse')
+
+        # 5) Consider some significance test maybe
+
+    plt.savefig('PID_top_' + str(nTop) + '_triplets_frac_significant_' + keyLabel + '.png')
+    plt.close()
+
+
+def _plt_all_top_n_singlets(dataDB, mat3DmouseDict, keyLabel, pidTypes, nTop=10):
+    # FIXME: Currently relies on same dimension ordering for all mice
+    channelLabels = dataDB.get_channel_labels(dataDB.mice[0])
+
+    fig, ax = plt.subplots(ncols=len(pidTypes), figsize=(len(pidTypes) * 4, 4), tight_layout=True)
+    for iPid, pidType in enumerate(pidTypes):
+        # 1) Sum all mouse arrays
+        mat1D = np.sum(list(mat3DmouseDict[pidType].values()), axis=(0, 1, 2))
+
+        # 2) Find indices of largest values
+        # 3) For each index, get channel names and values by mouse
+        maxIdxs = n_largest_indices(mat1D, nTop)
+        maxLabels = [channelLabels[idx] for idx in maxIdxs]
+
+        rezDict = {
+            'mouse': [],
+            'channel': [],
+            'values': []
+        }
+
+        for mousename in dataDB.mice:
+            mat1DThis = np.sum(mat3DmouseDict[pidType][mousename], axis=(0, 1))
+            rezDict['mouse'] += [mousename] * nTop
+            rezDict['channel'] += maxLabels
+            rezDict['values'] += [mat1DThis[idx] for idx in maxIdxs]
+
+        # 4) Plot stacked barplot with absolute numbers. Set ylim_max to total number of sessions
+        barplot_stacked(ax[iPid], pd.DataFrame(rezDict), 'channel', 'mouse')
+
+        # 5) Consider some significance test maybe
+
+        plt.savefig('PID_top_' + str(nTop) + '_singlets_frac_significant_' + keyLabel + '.png')
+        plt.close()
+
 
 # FIXME: Pointless with current bug - wait for new data.
 # TODO: Assembling matrix from labels too slow. Figure out from matrix decomposition
 #   -> Matrix decomposition too complicated. Slow better
-def plot_all_top_10_frac_significant(dataDB, h5fname):
+def plot_all_top_n_frac_significant(dataDB, h5fname, nTop=10, haveTriplet=True, haveSinglet=True):
     pidTypes = {'unique', 'red', 'syn'}
     summaryDF = pid_all_summary_df(h5fname)
 
     for keyLst, dfSession in summaryDF.groupby(['datatype', 'phase']):    # 'mousename'
         keyLabel = '_'.join(keyLst)
+        mat3DmouseDict = _get_pid_mat3D_dict(dataDB, keyLabel, dfSession, h5fname)
 
-        mat3DmouseDict = defaultdict(dict)
+        # Triplet Analysis
+        if haveTriplet:
+            _plt_all_top_n_triplets(dataDB, mat3DmouseDict, keyLabel, pidTypes, nTop=nTop)
 
-        for mousename, dfSession2 in dfSession.groupby(['mousename']):  # 'mousename'
-            print(keyLabel, mousename)
-            channelLabels = dataDB.get_channel_labels(mousename)
-            nChannels = len(channelLabels)
-
-
-            for pidType in pidTypes:
-                mat3DmouseDict[pidType][mousename] = np.zeros((nChannels, nChannels, nChannels))
-
-            for idx, row in dfSession2.iterrows():
-                df1 = pd.read_hdf(h5fname, key=row['key'])
-
-                # Merge Unique1 and Unique2 for this plot
-                df1.replace({'PID' : {'U1' : 'unique', 'U2' : 'unique'}}, inplace=True)
-
-                # Convert all channel labels to indices
-                for iCh, ch in enumerate(channelLabels):
-                    df1.replace({'S1' : {ch : iCh}, 'S2' : {ch : iCh}, 'T' : {ch : iCh}})
-
-                for pidType in pidTypes:
-                    df1PID = df1[df1['PID'] == pidType]
-                    df1Sig = df1PID[df1PID['p'] < 0.01]
-
-                    for idx, row in df1Sig.iterrows():
-                        x,y,z = row['S1'], row['S2'], row['T']
-                        mat3DmouseDict[pidType][mousename][x, y, z] += 1
-
-        for pidType in pidTypes:
-            # 1) Sum all mouse arrays
-            # 2) Find indices of largest values
-            # 3) For each index, get channel names and values by mouse
-            # 4) Plot stacked barplot with absolute numbers. Set ylim_max to total number of sessions
-            # 5) Consider some significance test maybe
-
-            pass
-
-
-
-
-
-        # fig, ax = plt.subplots(nrows=2, ncols=len(pidTypes), figsize=(len(pidTypes) * 4, 8), tight_layout=True)
+        # Singlet Analysis
+        if haveSinglet:
+            _plt_all_top_n_singlets(dataDB, mat3DmouseDict, keyLabel, pidTypes, nTop=nTop)
