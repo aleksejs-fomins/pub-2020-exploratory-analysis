@@ -10,6 +10,7 @@ import pymatreader
 from scipy.ndimage import affine_transform
 import skimage.transform as skt
 
+
 from mesostat.utils.pandas_helper import pd_append_row
 from mesostat.utils.matlab_helper import loadmat
 # import mesostat.utils.image_processing as msimg
@@ -106,6 +107,15 @@ class preprocess:
             self.pathRef[mouseName] = pathRef
             self.pathT2[mouseName] = pathT2
 
+    def parse_video_paths(self, path, day):
+        # filesTmp = os.listdir(path)
+        (_, _, filenames) = next(os.walk(path))
+        filenames = [f for f in filenames if f[:4] == day[:4]]              # Test that 1st 4 letters coincide with the year
+        filenames = [f for f in filenames if os.path.splitext(f)[1] == '']  # Test that file has no extension
+        filepaths = [os.path.join(path, f) for f in filenames]
+
+        return list(sorted(filepaths))
+
     # Load T1: Affine Transformation from file
     def load_t1(self, path):
         d = pymatreader.read_mat(path)['tform']['tdata']
@@ -200,11 +210,8 @@ class preprocess:
             pathsDay = pathsMouse[pathsMouse['day'] == day].reset_index()
             sessionPath = pathsDay['sessionPath'][0]
 
-            filesTmp = os.listdir(sessionPath)
-            filesTmp = [f for f in filesTmp if f[:4] == day[:4]]
-
-            filePath = os.path.join(sessionPath, filesTmp[0])
-            data = dcimg.DCIMGFile(filePath)[:]
+            filePaths = self.parse_video_paths(sessionPath, day)
+            data = dcimg.DCIMGFile(filePaths[0])[:]
 
             A, B = self.load_t2(self.pathT2[mousename])
 
@@ -231,46 +238,48 @@ class preprocess:
         rez = np.zeros((vid.shape[0], 27))
         for ikey, key in enumerate(keys):
             idxs = self.allen == key
-            print(vid.shape)
+            # print(vid.shape)
             vidPix = vid[:, idxs]
-            print(vidPix.shape)
+            # print(vidPix.shape)
             rez[:, ikey] = np.mean(vidPix, axis=1)
 
         return rez
 
     # Read video files, extract channel data and save to HDF5
-    def process_video_files(self, skipExisting=True):
-        for mouseName, mouseRows in self.dataPaths.groupby(['mousename']):
-            t2 = np.array(self.load_t2(self.pathT2[mouseName]))
+    def process_video_files(self, mouseName, skipExisting=False):
+        mouseRows = self.dataPaths[self.dataPaths['mouse'] == mouseName]
 
-            with h5py.File(mouseName + '.h5', 'a') as h5file:
-                if 'data' not in h5file.keys():
-                    h5file.create_group('data')
+        # for mouseName, mouseRows in self.dataPaths.groupby(['mouse']):
+        t2 = np.array(self.load_t2(self.pathT2[mouseName]))
 
-                for idx, row in mouseRows.iterrows():
-                    sessionName = row['day'] + '_' + row['session']
+        with h5py.File(mouseName + '.h5', 'a') as h5file:
+            if 'data' not in h5file.keys():
+                h5file.create_group('data')
 
-                    t1 = self.load_t1(self.pathT1[mouseName][row['day']])
+            for idx, row in mouseRows.iterrows():
+                sessionName = row['day'] + '_' + row['session']
 
-                    if (sessionName in h5file['data'].keys()) and skipExisting:
-                        print('Have', sessionName, '; skipping')
-                    else:
-                        pathFiles = row['sessionPath']
-                        filesTmp = os.listdir(pathFiles)
-                        filesTmp = [f for f in filesTmp if row['day'] in f]
+                t1 = self.load_t1(self.pathT1[mouseName][row['day']])
 
-                        dataRSP = []
-                        for vidfname in filesTmp:
-                            vidfpath = os.path.join(pathFiles, vidfname)
-                            dataTrial = dcimg.DCIMGFile(vidfpath)[:]
+                if (sessionName in h5file['data'].keys()) and not skipExisting:
+                    print('>> Have', sessionName, '; skipping')
+                else:
+                    print('processing', sessionName)
+                    filePaths = self.parse_video_paths(row['sessionPath'], row['day'])
 
-                            dataTrialTr = []
-                            for img in dataTrial:
-                                imgDS = skt.downscale_local_mean(img, (2, 2))
-                                imgT1, imgT2 = self.transform_img(imgDS, t2, t1=t1)
-                                dataTrialTr += [imgT2]
+                    dataRSP = []
+                    for iVid, vidpath in enumerate(filePaths):
+                        print('-', iVid, '/', len(filePaths))
 
-                            dataImgTr = np.array(dataTrialTr)
-                            dataRSP += [self.extract_channel_data(dataImgTr)]
+                        dataTrial = dcimg.DCIMGFile(vidpath)[:]
 
-                        h5file['data'].create_dataset(sessionName, data=np.array(dataRSP))
+                        dataTrialTr = []
+                        for img in dataTrial:
+                            imgDS = skt.downscale_local_mean(img, (2, 2))
+                            imgT1, imgT2 = self.transform_img(imgDS, t2, t1=t1)
+                            dataTrialTr += [imgT2]
+
+                        dataImgTr = np.array(dataTrialTr)
+                        dataRSP += [self.extract_channel_data(dataImgTr)]
+
+                    h5file['data'].create_dataset(sessionName, data=np.array(dataRSP))
