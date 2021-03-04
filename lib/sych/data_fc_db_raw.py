@@ -26,8 +26,11 @@ class DataFCDatabase:
         ##################################
         # Define resampling frequency
         ##################################
-        self.targetFPS = 20  # Hz
-        self.targetLength = 160  # Timesteps, at selected frequency
+        self.tMin = -2           # Seconds, start of trial
+        self.tMax = 8            # Seconds, end of trial
+        self.targetFPS = 20      # Hz
+        self.targetLength = int((self.tMax - self.tMin)*self.targetFPS)   # Trial length in timesteps
+        self.times = np.arange(self.tMin, self.tMax, 1/self.targetFPS)
 
         ##################################
         # Find and parse data files
@@ -114,6 +117,9 @@ class DataFCDatabase:
         with h5py.File(path, 'r') as h5file:
             return [l.decode('UTF8') for l in h5file['channelLabels']]
 
+    def get_times(self):
+        return self.times
+
     def get_nchannels(self, mousename):
         return len(self.get_channel_labels(mousename))
 
@@ -159,9 +165,13 @@ class DataFCDatabase:
 
     def cropRSP(self, dataRSP, startTime, endTime):
         assert dataRSP.shape[1] == self.targetLength
-        startIdx = int(startTime * self.targetFPS)
-        endIdx = int(endTime * self.targetFPS)
-        return dataRSP[:, startIdx:endIdx]
+
+        # startIdx = int(startTime * self.targetFPS)
+        # endIdx = int(endTime * self.targetFPS)
+        # return dataRSP[:, startIdx:endIdx]
+
+        idxs = np.logical_and(self.times >= startTime, self.times < endTime)
+        return dataRSP[:, idxs]
 
     def get_neuro_data(self, selector, datatype='raw', zscoreDim=None, cropTime=None, trialType=None, performance=None):
         dataKey = 'data_' + datatype

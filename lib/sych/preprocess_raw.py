@@ -775,32 +775,21 @@ def check_pre_trial_activity_small(dfRawH5):
                 plt.close()
 
 
-def DFF(x, timesPre, timesPost):
-    return x[timesPost] / np.mean(x[timesPre]) - 1
+def DFF(x, timesPre):
+    return x / np.mean(x[timesPre]) - 1
 
 
-def baseline_normalization(t, data3D, method):
+def baseline_normalization(t, data3D):
     timesPre = t < 0
-    timesPost = t >= 0
-    nTimesPost = np.sum(timesPost)
 
-    if method == 'raw':
-        return t[timesPost], data3D[:, timesPost]
-    else:
-        nTrial, _, nChannel = data3D.shape
-        dataRez = np.zeros((nTrial, nTimesPost, nChannel))
+    nTrial, nTimes, nChannel = data3D.shape
+    dataRez = np.zeros(data3D.shape)
 
-        if method == 'bn_session':
-            for iChannel in range(nChannel):
-                dataRez[:, :, iChannel] = DFF(data3D[:, :, iChannel].T, timesPre, timesPost).T
-        elif method == 'bn_trial':
-            for iTrial in range(nTrial):
-                for iChannel in range(nChannel):
-                    dataRez[iTrial, :, iChannel] = DFF(data3D[iTrial, :, iChannel], timesPre, timesPost)
-        else:
-            raise ValueError('Unexpected method', method)
+    for iTrial in range(nTrial):
+        for iChannel in range(nChannel):
+            dataRez[iTrial, :, iChannel] = DFF(data3D[iTrial, :, iChannel], timesPre)
 
-        return t[timesPost], dataRez
+    return dataRez
 
 
 def extract_store_trial_data(dfRawH5, targetFPS=20, bgOrd=2,
@@ -853,14 +842,10 @@ def extract_store_trial_data(dfRawH5, targetFPS=20, bgOrd=2,
                             xIdxs = np.arange(len(data))
                             dataBG[:, iChannel] = poly_fit_transform(xIdxs, data[:, iChannel], bgOrd)
 
-                    dataRaw = data - dataBG
-                    dataDFFSession = dataRaw / dataBG
-                    dataDFFTrial = data
-
                     dataDict = {
-                        'raw' : dataRaw,
-                        'bn_session': dataDFFSession,
-                        'bn_trial': dataDFFTrial,
+                        'raw' : data - dataBG,
+                        'bn_session': data / dataBG - 1,
+                        'bn_trial': data,
                     }
 
                     for baselineMethod, dataMethod in dataDict.items():
@@ -871,21 +856,21 @@ def extract_store_trial_data(dfRawH5, targetFPS=20, bgOrd=2,
                         t, dataSession, trialTypesSelected = data_partition_trials(h5file, session, data=dataMethod, tmin=-2, tmax=8)
 
                         # Perform baseline normalization
-                        baselineMethodEff = 'raw' if baselineMethod != 'bn_trial' else 'bn_trial'
-                        tPost, dataTrial = baseline_normalization(t, dataSession, baselineMethodEff)
+                        if baselineMethod == 'bn_trial':
+                            dataSession = baseline_normalization(t, dataSession)
 
                         # Downsample the result if does not match target FPS
                         FPS = h5file['data'][session].attrs['FPS']
                         if FPS != targetFPS:
-                            print('--downsampling', FPS, dataTrial.shape)
+                            print('--downsampling', FPS, dataSession.shape)
 
                             nTimesDownsample = FPS // targetFPS
-                            dataTrial = dataTrial.transpose((1,0,2))
-                            t2, dataTrial = downsample_int(tPost, dataTrial, nTimesDownsample)
-                            dataTrial = dataTrial.transpose((1,0,2))
+                            dataSession = dataSession.transpose((1,0,2))
+                            t2, dataSession = downsample_int(t, dataSession, nTimesDownsample)
+                            dataSession = dataSession.transpose((1,0,2))
 
                         # Store trial data
-                        h5file[dataNames[baselineMethod]].create_dataset(session, data=dataTrial)
+                        h5file[dataNames[baselineMethod]].create_dataset(session, data=dataSession)
 
                         # Store selected trial types
                         if session not in h5file['trialTypesSelected'].keys():
