@@ -7,12 +7,14 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from collections import defaultdict
 import pymatreader
-from scipy.ndimage import affine_transform
+# from scipy.ndimage import affine_transform
 import skimage.transform as skt
 
 
 from mesostat.utils.pandas_helper import pd_append_row
 from mesostat.utils.matlab_helper import loadmat
+from mesostat.stat.performance import accuracy, d_prime
+
 # import mesostat.utils.image_processing as msimg
 
 
@@ -54,6 +56,11 @@ class preprocess:
     def _sessions_to_letters(self, name):
         sessionIdx = int(name[len('session'):]) - 1
         return chr(97 + sessionIdx)
+
+    def _h5_append_group(self, h5path, group):
+        with h5py.File(h5path, 'a') as h5file:
+            if group not in h5file.keys():
+                h5file.create_group(group)
 
     # Find necessary file paths in the TDT folder
     def find_parse_tdt(self, pathTDT):
@@ -283,3 +290,103 @@ class preprocess:
                         dataRSP += [self.extract_channel_data(dataImgTr)]
 
                     h5file['data'].create_dataset(sessionName, data=np.array(dataRSP))
+
+    # Different mice have different Go/NoGo testures
+    def tex_go_nogo_bymouse(self, mouseName):
+        # return 'P100', 'P1200'
+        if (mouseName == 'mou_5') or (mouseName == 'mou_7'):
+            return 'P100', 'P1200'
+        else:
+            return 'P1200', 'P100'
+
+    # Convert stimulus and decision into trial type
+    def parse_trial_type(self, stimulus, decision, mouseName):
+        texGo, texNoGo = self.tex_go_nogo_bymouse(mouseName)
+
+        if decision == 'Early':
+            return decision
+        else:
+            assert (texGo in stimulus) or (texNoGo in stimulus)
+            goTex = texGo in stimulus
+
+            if decision == 'Go' and goTex:
+                return 'Hit'
+            elif decision == 'No Go' and not goTex:
+                return 'CR'
+            elif decision == 'No Response' and goTex:
+                return 'Miss'
+            elif decision == 'Inappropriate Response' and not goTex:
+                return 'FA'
+            else:
+                raise ValueError('Unexpected combination', stimulus, decision)
+
+    # Read trial structure file, drop unnecessary columns, compute trialType, return DF
+    def read_trial_structure_as_pd(self, path, mouseName):
+        df = pd.DataFrame(pymatreader.read_mat(path)['trials'])
+        df['trialType'] = [self.parse_trial_type(s, d, mouseName) for s, d in zip(df['stimulus'], df['decision'])]
+        df.drop(['id', 'no', 'puff', 'report', 'auto_reward', 'stimulus', 'decision'], inplace=True, axis=1)
+        return df
+
+    # Count number of trial types of each type. Ensure absent trials have 0 counts
+    def count_trial_types(self, df):
+        targetTypes = ['Hit', 'Miss', 'CR', 'FA']
+        d = df['trialType'].value_counts()
+        rezLst = [d[k] if k in d.keys() else 0 for k in targetTypes]
+        return dict(zip(targetTypes, rezLst))
+
+    # Read all structure files, process, save to H5. Also compute performance and save to H5
+    def process_metadata_files(self):
+        for mouseName, mouseRows in self.dataPaths.groupby(['mouse']):
+            h5name = mouseName + '.h5'
+            self._h5_append_group(h5name, 'metadata')
+            self._h5_append_group(h5name, 'accuracy')
+            self._h5_append_group(h5name, 'dprime')
+
+            for idx, row in mouseRows.iterrows():
+                sessionName = row['day'] + '_' + row['session']
+
+                dfTrialStruct = self.read_trial_structure_as_pd(row['trialStructPath'], mouseName)
+                dfTrialStruct.to_hdf(h5name, '/metadata/' + sessionName)
+
+                # Calculate and store accuracy and dprime
+                ttDict = self.count_trial_types(dfTrialStruct)
+                acc = accuracy(ttDict['Hit'], ttDict['Miss'], ttDict['FA'], ttDict['CR'])
+                dp = d_prime(ttDict['Hit'], ttDict['Miss'], ttDict['FA'], ttDict['CR'])
+
+                with h5py.File(h5name, 'a') as h5f:
+                    h5f['accuracy'].create_dataset(sessionName, data=acc)
+                    h5f['dprime'].create_dataset(sessionName, data=dp)
+
+    # For a given session, compute time of each timestep of each trial relative to start of session
+    # Return as 2D array (nTrial, nTime)
+    def get_trial_rel_times(self, pwd, mouseName, session, FPS=20.0):
+        '''
+            1. Load session metadata
+            2. Convert all times to timestamps
+            3. From all timestamps, subtract first, convert to seconds
+            4. Extract data, get nTimes from shape
+            5. Set increment, return
+        '''
+
+        fpath = os.path.join(pwd, mouseName + '.h5')
+
+        df = pd.read_hdf(fpath, '/metadata/' + session)
+        timeStamps = pd.to_datetime(df['time_stamp'], format='%H:%M:%S.%f')
+        timeDeltas = timeStamps - timeStamps[0]
+
+        nTimes = 200  # FIXME: Get from stored data
+        timesSh = np.arange(nTimes) / FPS
+
+        return [t.total_seconds() + timesSh for t in timeDeltas]
+
+    # Plot data of a few channels throughout the whole session
+    def example_poly_fit(self, mouseName, session):
+        pass
+
+    # For each trial, compute DFF, store back to h5
+    def baseline_subtraction_dff(self):
+        pass
+
+    # For each session: fit poly, do poly-DFF, store back to h5
+    def baseline_subtraction_poly(self):
+        pass
