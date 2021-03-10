@@ -1,7 +1,7 @@
 import numpy as np
 
 from mesostat.utils.arrays import slice_sorted
-from mesostat.utils.signals import resample, resample_kernel
+from mesostat.utils.signals.resample import resample, resample_kernel
 
 
 def resample_lick(f_lick, neuro, behaviour, TARGET_TIMES, TARGET_FREQ):

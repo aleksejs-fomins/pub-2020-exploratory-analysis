@@ -9,10 +9,9 @@ import matplotlib.pyplot as plt
 
 # Mesostat
 from mesostat.utils.matlab_helper import loadmat
-from mesostat.utils.signals import zscore_dim_ord
+from mesostat.utils.signals.resample import zscore_dim_ord
 
 # Local
-from lib.preprocessing.dff import dff
 
 
 class DataFCDatabase:

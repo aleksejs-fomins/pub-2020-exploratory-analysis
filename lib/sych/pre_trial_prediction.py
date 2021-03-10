@@ -4,9 +4,9 @@ import matplotlib
 import matplotlib.pyplot as plt
 from matplotlib.collections import PatchCollection
 from scipy.stats import mannwhitneyu
-from sklearn.linear_model import RidgeClassifier, LogisticRegression
+from sklearn.linear_model import RidgeClassifier
 
-from mesostat.utils.signals import zscore, resample
+from mesostat.utils.signals.resample import resample
 from mesostat.utils.pandas_helper import pd_query, pd_is_one_row
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
 from mesostat.stat.classification import binary_classifier

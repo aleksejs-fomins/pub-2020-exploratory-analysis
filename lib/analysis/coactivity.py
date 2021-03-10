@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from mesostat.utils.signals import zscore
+from mesostat.utils.signals.resample import zscore
 import mesostat.stat.consistency.pca as pca
 
 

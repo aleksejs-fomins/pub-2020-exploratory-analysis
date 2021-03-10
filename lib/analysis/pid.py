@@ -7,11 +7,11 @@ from collections import defaultdict
 
 from mesostat.metric.idtxl_pid import bivariate_pid_3D
 from mesostat.utils.pandas_helper import pd_append_row, pd_query, merge_df_from_dict
-from mesostat.utils.signals import bin_data
+from mesostat.utils.signals.resample import bin_data
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
 from mesostat.visualization.mpl_violin import violins_labeled
 from mesostat.visualization.mpl_cdf import cdf_labeled
-from mesostat.visualization.mpl_barplot import barplot_labeled, barplot_stacked
+from mesostat.visualization.mpl_barplot import barplot_stacked
 from mesostat.stat.permtests import percentile_twosided, perm_test_resample
 from mesostat.stat.moments import n_largest_indices
 

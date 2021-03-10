@@ -8,10 +8,9 @@ import h5py
 from mesostat.utils.system import getfiles_walk
 from mesostat.utils.hdf5_io import DataStorage
 from mesostat.utils.matlab_helper import loadmat
-from mesostat.utils.signals import downsample_int
+from mesostat.utils.signals.resample import downsample_int
 from lib.sych.data_read import read_neuro_perf
-
-from sklearn.metrics import r2_score
+import lib.preprocessing.polyfit as polyfit
 
 
 def h5_overwrite_group(h5file, groupName, **kwargs):
@@ -621,31 +620,6 @@ def find_large_trials(dfRawH5):
 # Background subtraction
 ###########################
 
-def poly_fit_transform(x, y, ord):
-    coeff = np.polyfit(x, y, ord)
-    p = np.poly1d(coeff)
-    return p(x)
-
-
-def poly_fit_discrete_residual(y, ord):
-    xFake = np.arange(len(y))
-    return y - poly_fit_transform(xFake, y, ord)
-
-
-def poly_fit_discrete_parameter_selection(y, ordMax=5):
-    relResidualNorms = []
-    normOld = np.linalg.norm(y)
-    for ord in range(0, ordMax+1):
-        # yfit = poly_fit_transform(np.arange(len(y)), y, ord)
-        # relResidualNorms += [r2_score(y, yfit)]
-
-        resThis = poly_fit_discrete_residual(y, ord)
-        normThis = np.linalg.norm(resThis)
-        relResidualNorms += [1 - normThis / normOld]
-        normOld = normThis
-
-    return relResidualNorms
-
 
 def pooled_plot_background_polyfit_residuals(dfRawH5, ordMax=5):
     for idx, row in dfRawH5.iterrows():
@@ -657,7 +631,7 @@ def pooled_plot_background_polyfit_residuals(dfRawH5, ordMax=5):
 
                 plt.figure()
                 for i in range(48):
-                    relres = poly_fit_discrete_parameter_selection(data[:, i], ordMax=ordMax)
+                    relres = polyfit.poly_fit_discrete_parameter_selection(data[:, i], ordMax=ordMax)
                     plt.plot(relres)
 
                 plt.title(session)
@@ -675,7 +649,7 @@ def poly_view_fit(dfRawH5, session, channel, ord, onlyTrials=False, onlySelected
 
         print(len(data))
 
-        dataFit = poly_fit_transform(x, data, ord)
+        dataFit = polyfit.poly_fit_transform(x, data, ord)
         fig, ax = plt.subplots(ncols=3, figsize=(12,4))
         ax[0].plot(x, data)
         ax[0].plot(x, dataFit)

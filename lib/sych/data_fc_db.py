@@ -13,7 +13,7 @@ from mesostat.utils.system import strlst2date, getfiles_walk
 from mesostat.utils.arrays import bin_data_by_keys, slice_sorted
 from mesostat.utils.pandas_helper import pd_rows_colval, pd_query
 from mesostat.utils.matlab_helper import loadmat
-from mesostat.utils.signals import zscore_dim_ord
+from mesostat.utils.signals.resample import zscore_dim_ord
 
 # Local libraries
 from lib.sych.mouse_performance import mouse_performance_allsessions

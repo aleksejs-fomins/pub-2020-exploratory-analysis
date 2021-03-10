@@ -4,7 +4,7 @@ from scipy.stats import combine_pvalues
 
 from mesostat.stat.connectomics import offdiag_idx
 from mesostat.metric.corr import corr_2D
-from mesostat.utils.signals import polyfit_transform
+from mesostat.utils.signals.resample import polyfit_transform
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.utils.pandas_helper import outer_product_df
 

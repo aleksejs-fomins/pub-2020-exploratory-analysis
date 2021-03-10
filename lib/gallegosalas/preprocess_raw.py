@@ -10,10 +10,13 @@ import pymatreader
 # from scipy.ndimage import affine_transform
 import skimage.transform as skt
 
-
+from mesostat.utils.arrays import numpy_merge_dimensions
 from mesostat.utils.pandas_helper import pd_append_row
 from mesostat.utils.matlab_helper import loadmat
 from mesostat.stat.performance import accuracy, d_prime
+from mesostat.utils.signals.fit import natural_cubic_spline_fit_reg
+
+import lib.preprocessing.polyfit as polyfit
 
 # import mesostat.utils.image_processing as msimg
 
@@ -263,21 +266,25 @@ class preprocess:
             if 'data' not in h5file.keys():
                 h5file.create_group('data')
 
-            for idx, row in mouseRows.iterrows():
-                sessionName = row['day'] + '_' + row['session']
+        for idx, row in mouseRows.iterrows():
+            sessionName = row['day'] + '_' + row['session']
 
-                t1 = self.load_t1(self.pathT1[mouseName][row['day']])
+            t1 = self.load_t1(self.pathT1[mouseName][row['day']])
 
-                if (sessionName in h5file['data'].keys()) and not skipExisting:
-                    print('>> Have', sessionName, '; skipping')
-                else:
-                    print('processing', sessionName)
-                    filePaths = self.parse_video_paths(row['sessionPath'], row['day'])
+            with h5py.File(mouseName + '.h5', 'a') as h5file:
+                sessionProcessed = sessionName in h5file['data'].keys()
 
-                    dataRSP = []
-                    for iVid, vidpath in enumerate(filePaths):
-                        print('-', iVid, '/', len(filePaths))
+            if sessionProcessed and not skipExisting:
+                print('>> Have', sessionName, '; skipping')
+            else:
+                print('processing', sessionName)
+                filePaths = self.parse_video_paths(row['sessionPath'], row['day'])
 
+                dataRSP = []
+                for iVid, vidpath in enumerate(filePaths):
+                    print('-', iVid, '/', len(filePaths))
+
+                    try:
                         dataTrial = dcimg.DCIMGFile(vidpath)[:]
 
                         dataTrialTr = []
@@ -289,6 +296,11 @@ class preprocess:
                         dataImgTr = np.array(dataTrialTr)
                         dataRSP += [self.extract_channel_data(dataImgTr)]
 
+                    except:
+                        print('---warning, reading video failed, filling with NAN')
+                        dataRSP += [np.full(dataRSP[-1].shape, np.nan)]
+
+                with h5py.File(mouseName + '.h5', 'a') as h5file:
                     h5file['data'].create_dataset(sessionName, data=np.array(dataRSP))
 
     # Different mice have different Go/NoGo testures
@@ -345,21 +357,31 @@ class preprocess:
             for idx, row in mouseRows.iterrows():
                 sessionName = row['day'] + '_' + row['session']
 
-                dfTrialStruct = self.read_trial_structure_as_pd(row['trialStructPath'], mouseName)
-                dfTrialStruct.to_hdf(h5name, '/metadata/' + sessionName)
-
-                # Calculate and store accuracy and dprime
-                ttDict = self.count_trial_types(dfTrialStruct)
-                acc = accuracy(ttDict['Hit'], ttDict['Miss'], ttDict['FA'], ttDict['CR'])
-                dp = d_prime(ttDict['Hit'], ttDict['Miss'], ttDict['FA'], ttDict['CR'])
-
                 with h5py.File(h5name, 'a') as h5f:
-                    h5f['accuracy'].create_dataset(sessionName, data=acc)
-                    h5f['dprime'].create_dataset(sessionName, data=dp)
+                    metaProcessed = sessionName in h5f['metadata'].keys()
+
+                if metaProcessed:
+                    print('already processed', mouseName, sessionName)
+                else:
+                    dfTrialStruct = self.read_trial_structure_as_pd(row['trialStructPath'], mouseName)
+                    dfTrialStruct.to_hdf(h5name, '/metadata/' + sessionName)
+
+                    # Calculate and store accuracy and dprime
+                    ttDict = self.count_trial_types(dfTrialStruct)
+                    acc = accuracy(ttDict['Hit'], ttDict['Miss'], ttDict['FA'], ttDict['CR'])
+                    dp = d_prime(ttDict['Hit'], ttDict['Miss'], ttDict['FA'], ttDict['CR'])
+
+                    with h5py.File(h5name, 'a') as h5f:
+                        h5f['accuracy'].create_dataset(sessionName, data=acc)
+                        h5f['dprime'].create_dataset(sessionName, data=dp)
 
     # For a given session, compute time of each timestep of each trial relative to start of session
     # Return as 2D array (nTrial, nTime)
-    def get_trial_rel_times(self, pwd, mouseName, session, FPS=20.0):
+    def get_pooled_data_rel_times(self, pwd, mouseName, session, FPS=20.0):
+        fpath = os.path.join(pwd, mouseName + '.h5')
+        with h5py.File(fpath) as f:
+            dataRSP = np.copy(f['data'][session])
+
         '''
             1. Load session metadata
             2. Convert all times to timestamps
@@ -374,19 +396,95 @@ class preprocess:
         timeStamps = pd.to_datetime(df['time_stamp'], format='%H:%M:%S.%f')
         timeDeltas = timeStamps - timeStamps[0]
 
-        nTimes = 200  # FIXME: Get from stored data
-        timesSh = np.arange(nTimes) / FPS
+        timesSh = np.arange(dataRSP.shape[1]) / FPS
+        timesRS = np.array([t.total_seconds() + timesSh for t in timeDeltas])
 
-        return [t.total_seconds() + timesSh for t in timeDeltas]
+        if timesRS.shape[0] < dataRSP.shape[0]:
+            print('Warning: shape mismatch', timesRS.shape[0], dataRSP.shape[0])
+            dataRSP = dataRSP[:timesRS.shape[0]]
+
+        return timesRS, dataRSP
+
+    # Fit polynomial to RSP data, return fit
+    def polyfit_data_3D(self, times, dataRSP, ord, alpha):
+        timesFlat = times.flatten()
+        dataFlat = numpy_merge_dimensions(dataRSP, 0, 2)
+
+        rez = np.zeros(dataRSP.shape)
+        plt.figure(figsize=(8, 4))
+        for iCh in range(dataRSP.shape[2]):
+            # y = polyfit.poly_fit_transform(timesFlat, dataFlat[:, iCh], ord)
+            y = natural_cubic_spline_fit_reg(timesFlat, dataFlat[:, iCh], dof=ord, alpha=alpha)
+            rez[:, :, iCh] = y.reshape(times.shape)
+        return rez
 
     # Plot data of a few channels throughout the whole session
-    def example_poly_fit(self, mouseName, session):
-        pass
+    def example_poly_fit(self, pwd, mouseName, session, ord=2, alpha=0.01):
+        times, dataRSP = self.get_pooled_data_rel_times(pwd, mouseName, session)
+        timesFlat = times.flatten()
+        dataFlat = numpy_merge_dimensions(dataRSP, 0, 2)
+
+        print(times.shape, dataRSP.shape)
+
+        nTrial, nTime, nChannel = dataRSP.shape
+        plt.figure(figsize=(8, 4))
+        for iCh in range(nChannel):
+            # y = polyfit.poly_fit_transform(timesFlat, dataFlat[:, iCh], ord)
+            y = natural_cubic_spline_fit_reg(timesFlat, dataFlat[:, iCh], dof=ord, alpha=alpha)
+
+            for iTr in range(nTrial):
+                plt.plot(times[iTr], dataRSP[iTr, :, iCh], color='orange')
+            plt.plot(timesFlat, y)
+            break
+        plt.show()
 
     # For each trial, compute DFF, store back to h5
-    def baseline_subtraction_dff(self):
-        pass
+    def baseline_subtraction_dff(self, pwd, iMin, iMax, skipExist=False):
+        for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
+            h5fname = mouseName + '.h5'
+
+            self._h5_append_group(h5fname, 'bn_trial')
+
+            for idx, row in dfMouse.iterrows():
+                session = row['day'] + '_' + row['session']
+                with h5py.File(h5fname, 'r') as h5f:
+                    if not skipExist and session in h5f['bn_trial'].keys():
+                        print(mouseName, session, 'already exists, skipping')
+                        continue
+
+                print(mouseName, session)
+                times, dataRSP = self.get_pooled_data_rel_times(pwd, mouseName, session)
+                dataBN = np.zeros(dataRSP.shape)
+
+                for iTr in dataRSP.shape[0]:
+                    mu = np.mean(dataRSP[iTr, iMin:iMax], axis=0)
+                    dataBN[iTr] = dataRSP[iTr] / mu - 1
+
+                with h5py.File(h5fname, 'r') as h5f:
+                    h5f['bn_trial'].create_dataset(session, data=dataBN)
 
     # For each session: fit poly, do poly-DFF, store back to h5
-    def baseline_subtraction_poly(self):
-        pass
+    def baseline_subtraction_poly(self, pwd, ord=2, alpha=0.01, skipExist=False):
+        for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
+            h5fname = mouseName + '.h5'
+
+            self._h5_append_group(h5fname, 'bn_session')
+            self._h5_append_group(h5fname, 'raw')
+
+            for idx, row in dfMouse.iterrows():
+                session = row['day'] + '_' + row['session']
+                with h5py.File(h5fname, 'r') as h5f:
+                    if not skipExist and session in h5f['bn_session'].keys():
+                        print(mouseName, session, 'already exists, skipping')
+                        continue
+
+                print(mouseName, session)
+                times, dataRSP = self.get_pooled_data_rel_times(pwd, mouseName, session)
+                dataRSPfit = self.polyfit_data_3D(times, dataRSP, ord, alpha)
+
+                dataRaw = dataRSP - dataRSPfit
+                dataBN = dataRaw / dataRSPfit
+
+                with h5py.File(h5fname, 'r') as h5f:
+                    h5f['raw'].create_dataset(session, data=dataRaw)
+                    h5f['bn_session'].create_dataset(session, data=dataBN)

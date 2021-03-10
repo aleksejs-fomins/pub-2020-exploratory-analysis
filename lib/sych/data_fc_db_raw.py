@@ -1,19 +1,14 @@
 import os
 import numpy as np
 import h5py
-import pandas as pd
 
 # IPython-Specific
-from IPython.display import display
-from ipywidgets import IntProgress
 
 # Mesostat includes
-from mesostat.utils.pandas_helper import pd_rows_colval, pd_query
 from mesostat.utils.system import getfiles_walk
-from mesostat.utils.signals import zscore_dim_ord
+from mesostat.utils.signals.resample import zscore_dim_ord
 
 # Local libraries
-from lib.sych.mouse_performance import mouse_performance_allsessions
 
 
 class DataFCDatabase:
