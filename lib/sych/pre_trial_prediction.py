@@ -11,7 +11,7 @@ from mesostat.utils.pandas_helper import pd_query, pd_is_one_row
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
 from mesostat.stat.classification import binary_classifier
 
-from lib.sych.preprocess_raw import poly_fit_transform
+from lib.preprocessing.polyfit import poly_fit_transform
 
 
 def plot_session(dataDB, session):

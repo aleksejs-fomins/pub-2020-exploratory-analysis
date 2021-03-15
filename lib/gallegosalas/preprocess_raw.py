@@ -152,14 +152,23 @@ class preprocess:
 
     # Apply T1 and T2 to a flat 2D image. Return results of each transform
     def transform_img(self, img, t2, t1=None):
+        cval = 100 * np.nanmax(img)
+        print(cval)
+
         rez = [img]
         if t1 is not None:
             at = skt.AffineTransform(t1.T)
-            rez += [skt.warp(img, at.inverse)]
+            rez += [skt.warp(img, at.inverse, mode='constant', cval=cval)]
 
         A, B = t2
         pt = skt.PolynomialTransform(np.array([A, B]))
-        rez += [skt.warp(rez[-1], pt)]
+        polyRez = skt.warp(rez[-1], pt, mode='constant', cval=cval)
+        polyRez = polyRez[::-1].T
+        polyRez[polyRez > cval / 10] = np.nan
+        rez += [polyRez]
+
+        if t1 is not None:
+            rez[-2][rez[-2] > cval / 10] = np.nan
 
         #     if t1 is not None:
         #         at = skt.AffineTransform(t1.T)
@@ -187,7 +196,7 @@ class preprocess:
             ax[1].set_title('T1')
 
         # Overlay Allen
-        imgT2 = imgT2[::-1].T / np.max(imgT2) + 0.3 * (self.allen == 0).astype(int)
+        imgT2 = imgT2 / np.nanmax(imgT2) + 0.3 * (self.allen == 0).astype(int)
 
         ax[2].imshow(imgT2)
         ax[2].set_title('T2')
@@ -251,7 +260,7 @@ class preprocess:
             # print(vid.shape)
             vidPix = vid[:, idxs]
             # print(vidPix.shape)
-            rez[:, ikey] = np.mean(vidPix, axis=1)
+            rez[:, ikey] = np.nanmean(vidPix, axis=1)
 
         return rez
 
@@ -411,7 +420,6 @@ class preprocess:
         dataFlat = numpy_merge_dimensions(dataRSP, 0, 2)
 
         rez = np.zeros(dataRSP.shape)
-        plt.figure(figsize=(8, 4))
         for iCh in range(dataRSP.shape[2]):
             # y = polyfit.poly_fit_transform(timesFlat, dataFlat[:, iCh], ord)
             y = natural_cubic_spline_fit_reg(timesFlat, dataFlat[:, iCh], dof=ord, alpha=alpha)
@@ -419,7 +427,7 @@ class preprocess:
         return rez
 
     # Plot data of a few channels throughout the whole session
-    def example_poly_fit(self, pwd, mouseName, session, ord=2, alpha=0.01):
+    def example_poly_fit(self, pwd, mouseName, session, iCh=0, ord=2, alpha=0.01):
         times, dataRSP = self.get_pooled_data_rel_times(pwd, mouseName, session)
         timesFlat = times.flatten()
         dataFlat = numpy_merge_dimensions(dataRSP, 0, 2)
@@ -428,14 +436,12 @@ class preprocess:
 
         nTrial, nTime, nChannel = dataRSP.shape
         plt.figure(figsize=(8, 4))
-        for iCh in range(nChannel):
-            # y = polyfit.poly_fit_transform(timesFlat, dataFlat[:, iCh], ord)
-            y = natural_cubic_spline_fit_reg(timesFlat, dataFlat[:, iCh], dof=ord, alpha=alpha)
+        # y = polyfit.poly_fit_transform(timesFlat, dataFlat[:, iCh], ord)
+        y = natural_cubic_spline_fit_reg(timesFlat, dataFlat[:, iCh], dof=ord, alpha=alpha)
 
-            for iTr in range(nTrial):
-                plt.plot(times[iTr], dataRSP[iTr, :, iCh], color='orange')
-            plt.plot(timesFlat, y)
-            break
+        for iTr in range(nTrial):
+            plt.plot(times[iTr], dataRSP[iTr, :, iCh], color='orange')
+        plt.plot(timesFlat, y)
         plt.show()
 
     # For each trial, compute DFF, store back to h5
@@ -447,20 +453,27 @@ class preprocess:
 
             for idx, row in dfMouse.iterrows():
                 session = row['day'] + '_' + row['session']
-                with h5py.File(h5fname, 'r') as h5f:
-                    if not skipExist and session in h5f['bn_trial'].keys():
-                        print(mouseName, session, 'already exists, skipping')
-                        continue
+                with h5py.File(h5fname, 'a') as h5f:
+                    if session in h5f['bn_trial'].keys():
+                        if skipExist:
+                            del h5f['bn_trial'][session]
+                        else:
+                            print(mouseName, session, 'already exists, skipping')
+                            continue
 
                 print(mouseName, session)
                 times, dataRSP = self.get_pooled_data_rel_times(pwd, mouseName, session)
+                if len(times) != len(dataRSP):
+                    print('-- trial mismatch', times.shape, dataRSP.shape)
+                    continue
+
                 dataBN = np.zeros(dataRSP.shape)
 
-                for iTr in dataRSP.shape[0]:
-                    mu = np.mean(dataRSP[iTr, iMin:iMax], axis=0)
+                for iTr in range(dataRSP.shape[0]):
+                    mu = np.nanmean(dataRSP[iTr, iMin:iMax], axis=0)
                     dataBN[iTr] = dataRSP[iTr] / mu - 1
 
-                with h5py.File(h5fname, 'r') as h5f:
+                with h5py.File(h5fname, 'a') as h5f:
                     h5f['bn_trial'].create_dataset(session, data=dataBN)
 
     # For each session: fit poly, do poly-DFF, store back to h5
@@ -469,22 +482,33 @@ class preprocess:
             h5fname = mouseName + '.h5'
 
             self._h5_append_group(h5fname, 'bn_session')
+            self._h5_append_group(h5fname, 'bn_fit')
             self._h5_append_group(h5fname, 'raw')
 
             for idx, row in dfMouse.iterrows():
                 session = row['day'] + '_' + row['session']
                 with h5py.File(h5fname, 'r') as h5f:
-                    if not skipExist and session in h5f['bn_session'].keys():
-                        print(mouseName, session, 'already exists, skipping')
-                        continue
+                    if session in h5f['bn_session'].keys():
+                        if skipExist:
+                            del h5f['bn_session'][session]
+                            del h5f['bn_fit'][session]
+                            del h5f['raw'][session]
+                        else:
+                            print(mouseName, session, 'already exists, skipping')
+                            continue
 
                 print(mouseName, session)
                 times, dataRSP = self.get_pooled_data_rel_times(pwd, mouseName, session)
+                if len(times) != len(dataRSP):
+                    print('-- trial mismatch', times.shape, dataRSP.shape)
+                    continue
+
                 dataRSPfit = self.polyfit_data_3D(times, dataRSP, ord, alpha)
 
                 dataRaw = dataRSP - dataRSPfit
                 dataBN = dataRaw / dataRSPfit
 
-                with h5py.File(h5fname, 'r') as h5f:
+                with h5py.File(h5fname, 'a') as h5f:
                     h5f['raw'].create_dataset(session, data=dataRaw)
+                    h5f['bn_fit'].create_dataset(session, data=dataRSPfit)
                     h5f['bn_session'].create_dataset(session, data=dataBN)

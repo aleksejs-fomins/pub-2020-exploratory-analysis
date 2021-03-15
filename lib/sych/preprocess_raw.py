@@ -807,14 +807,14 @@ def extract_store_trial_data(dfRawH5, targetFPS=20, bgOrd=2,
                         dataBG = np.copy(data)
                         xIdxs, y = data_mark_trials(h5file, session, data=data, tmin=-2, tmax=8, onlySelected=True)
                         for iChannel in range(nChannel):
-                            yFit = poly_fit_transform(xIdxs, y[:, iChannel], bgOrd)
+                            yFit = polyfit.poly_fit_transform(xIdxs, y[:, iChannel], bgOrd)
                             dataBG[xIdxs, iChannel] = yFit
                     else:
                         # Fit polynomial to entire trial
                         dataBG = np.zeros(data.shape)
                         for iChannel in range(nChannel):
                             xIdxs = np.arange(len(data))
-                            dataBG[:, iChannel] = poly_fit_transform(xIdxs, data[:, iChannel], bgOrd)
+                            dataBG[:, iChannel] = polyfit.poly_fit_transform(xIdxs, data[:, iChannel], bgOrd)
 
                     dataDict = {
                         'raw' : data - dataBG,

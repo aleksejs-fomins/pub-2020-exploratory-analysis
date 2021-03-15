@@ -6,7 +6,7 @@ import h5py
 
 # Mesostat includes
 from mesostat.utils.system import getfiles_walk
-from mesostat.utils.signals.resample import zscore_dim_ord
+from mesostat.utils.signals.filter import zscore_dim_ord
 
 # Local libraries
 

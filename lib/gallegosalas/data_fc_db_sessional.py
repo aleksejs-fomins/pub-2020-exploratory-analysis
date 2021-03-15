@@ -15,7 +15,7 @@ from mesostat.utils.pandas_helper import pd_query
 from mesostat.utils.matlab_helper import loadmat
 from mesostat.utils.system import getfiles_walk
 from mesostat.utils.arrays import numpy_transpose_byorder
-from mesostat.utils.signals.resample import zscore_dim_ord
+from mesostat.utils.signals.filter import zscore_dim_ord
 
 # Local
 from lib.preprocessing.dff import dff

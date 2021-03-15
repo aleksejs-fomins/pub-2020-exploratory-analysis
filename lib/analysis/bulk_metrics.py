@@ -24,7 +24,7 @@ def _dict_append_auto(d, key, x, xAutoFunc):
 
 def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
                       metricSettings=None, sweepSettings=None, dataTypes='auto',
-                      trialTypeNames=None, perfNames=None, cropTime=None, verbose=True):
+                      trialTypeNames=None, perfNames=None, cropTime=None, timeAvg=False, verbose=True):
 
     argSweepDict = {'mousename' : dataDB.mice}
     _dict_append_auto(argSweepDict, 'datatype', dataTypes, dataDB.get_data_types)
@@ -49,6 +49,7 @@ def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
                            # datatype=datatype,
                            # trialType=trialType,
                            # performance=performance,
+                           timeAvg=timeAvg,
                            zscoreDim=zscoreDim,
                            metricSettings=metricSettings,
                            sweepSettings=sweepSettings,
@@ -178,3 +179,4 @@ def plot_TC(dataDB, ds, ylim=None, yscale=None, verbose=True):
                     plt.ylim(ylim)
                     plt.savefig('pics/' + dataNameTC + '.pdf')
                     plt.close()
+
