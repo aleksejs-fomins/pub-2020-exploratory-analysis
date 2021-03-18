@@ -25,12 +25,16 @@ def read_neuro_perf(folderpath, verbose=True, withPerformance=True):
     data        = loadmat(fname_data, waitRetry=waitRetry)['data']
     nTrialsData = data.shape[0]
     behavior    = loadmat(fname_behaviour, waitRetry=waitRetry)
-    behavior = {k : v for k, v in behavior.items() if k[0] != '_'}      # Get rid of useless fields in behaviour
 
+    # Preprocess behaviour
+    behKeys = ['iGO', 'iNOGO', 'iFA', 'iMISS']
+    behavToArray = lambda b: np.array([b], dtype=int) if type(b) == int else b  # If array has 1 index it appears as a number :(
+    behavior = {k: v for k, v in behavior.items() if k[0] != '_'}  # Get rid of useless fields in behaviour
+    for k in behKeys:
+        behavior[k] = behavToArray(behavior[k])                    # Convert to arrays
+
+    # Compute performance
     if withPerformance:
-        if (nTrialsData < len(behavior['iGO']) + len(behavior['iNOGO'])):
-            print("Warning: For", os.path.basename(folderpath), "nTrials inconsistent with behaviour", nTrialsData, len(behavior['iGO']), len(behavior['iNOGO']))
-
         performance = mouse_performance_single_session(nTrialsData, behavior)
 
         if not os.path.exists(fpath_performance):
@@ -44,17 +48,9 @@ def read_neuro_perf(folderpath, verbose=True, withPerformance=True):
     # Convert trials structure to a dictionary
     behavior['trials'] = merge_dicts([matstruct2dict(obj) for obj in behavior['trials']])
     
-    # d_trials = matstruct2dict(behavior['trials'][0])
-    # for i in range(1, len(behavior['trials'])):
-    #     d_trials = merge_dict(d_trials, matstruct2dict(behavior['trials'][i]))
-    # behavior['trials'] = d_trials
-    
     # CONSISTENCY TEST 1 - If behavioural trials are more than neuronal, crop:
-    behavToArray = lambda b: np.array([b], dtype=int) if type(b)==int else b   # If array has 1 index it appears as a number :(
-    behKeys = ['iGO', 'iNOGO', 'iFA', 'iMISS']
     for behKey in behKeys:
-        behArray = behavToArray(behavior[behKey])
-        
+        behArray = behavior[behKey]
         behNTrialsThis = len(behArray)
         if behNTrialsThis > 0:
             behMaxIdxThis  = np.max(behArray) - 1  # Note Matlab indices start from 1            
@@ -65,14 +61,14 @@ def read_neuro_perf(folderpath, verbose=True, withPerformance=True):
             
     # CONSISTENCY TEST 2 - If neuronal trials are more than behavioural
     # Note that there are other keys except the above four, so data trials may be more than those for the four keys
-    behIndices = [idx for key in behKeys for idx in behavToArray(behavior[key])]
+    behIndices = [idx for key in behKeys for idx in behavior[key]]
     assert len(behIndices) <= nTrialsData, "After cropping behavioural trials may not exceed data trials"
     
     # CONSISTENCY TEST 3 - Test behavioural indices for duplicates
     for idx in behIndices:
         thisCount = behIndices.count(idx)
         if thisCount != 1:
-            keysRep = {key : list(behavToArray(behavior[key])).count(idx) for key in behKeys if idx in behavToArray(behavior[key])}
+            keysRep = {key : list(behavior[key]).count(idx) for key in behKeys if idx in behavior[key]}
             print("--WARNING: index", idx, "appears multiple times:", keysRep)
             
         #assert behIndices.count(idx) == 1, "Found duplicates in behaviour indices"

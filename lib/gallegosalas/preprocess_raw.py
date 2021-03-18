@@ -153,7 +153,7 @@ class preprocess:
     # Apply T1 and T2 to a flat 2D image. Return results of each transform
     def transform_img(self, img, t2, t1=None):
         cval = 100 * np.nanmax(img)
-        print(cval)
+        # print(cval)
 
         rez = [img]
         if t1 is not None:

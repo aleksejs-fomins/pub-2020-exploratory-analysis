@@ -4,12 +4,18 @@ from mesostat.utils.system import date_diff
 
 
 # Performance is true positive + true negative frequency
-def mouse_performance_single_session(nTrial, behaviour):
+def mouse_performance_single_session(nTrialData, behaviour):
     nTrialGO = len(behaviour['iGO'])
     nTrialNOGO = len(behaviour['iNOGO'])
-    perf = (nTrialGO + nTrialNOGO) / nTrial
-    return perf
+    nTrialMISS = len(behaviour['iMISS'])
+    nTrialFA = len(behaviour['iFA'])
 
+    nTrialTot = nTrialGO + nTrialNOGO + nTrialMISS + nTrialFA
+
+    if nTrialData < nTrialTot:
+        print("--Warning: nTrials inconsistent with behaviour", nTrialData, nTrialTot)
+
+    return (nTrialGO + nTrialNOGO) / nTrialTot
 
 # Mark days as naive or expert based on performance threshold
 def mouse_performance_allsessions(datesLst, perfLst, pTHR):

@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.stats import combine_pvalues
 from collections import defaultdict
+import seaborn as sns
 
 from mesostat.metric.idtxl_pid import bivariate_pid_3D
 from mesostat.utils.pandas_helper import pd_append_row, pd_query, merge_df_from_dict
@@ -11,7 +12,7 @@ from mesostat.utils.signals.resample import bin_data
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
 from mesostat.visualization.mpl_violin import violins_labeled
 from mesostat.visualization.mpl_cdf import cdf_labeled
-from mesostat.visualization.mpl_barplot import barplot_stacked
+from mesostat.visualization.mpl_barplot import barplot_stacked, barplot_stacked_indexed
 from mesostat.stat.permtests import percentile_twosided, perm_test_resample
 from mesostat.stat.moments import n_largest_indices
 
@@ -337,9 +338,9 @@ def plot_all_results_distribution(h5fname, plotstyle='cdf'):
                 plt.savefig('PID_Violin_' + keyLabel + '.png')
             elif plotstyle == 'cdf':
                 ax[0].axvline(x=0.01, linestyle='--', label='significant')
-                cdf_labeled(ax[0], pVals, pidTypes, 'pidType', 'pVal', haveLog=True)
-                cdf_labeled(ax[1], effSizes, pidTypes, 'pidType', 'effSize', haveLog=False)
-                cdf_labeled(ax[2], values, pidTypes, 'pidType', 'Bits', haveLog=False)
+                cdf_labeled(ax[0], pVals, pidTypes, 'pVal', haveLog=True)
+                cdf_labeled(ax[1], effSizes, pidTypes, 'effSize', haveLog=False)
+                cdf_labeled(ax[2], values, pidTypes, 'Bits', haveLog=False)
                 plt.savefig('PID_CDF_' + keyLabel + '.png')
             else:
                 raise ValueError('Unexpected plot style', plotstyle)
@@ -347,21 +348,21 @@ def plot_all_results_distribution(h5fname, plotstyle='cdf'):
             plt.close()
 
 
-# FIXME: Why perf=2.5 in one case? How did we deal with this in Yaro's case (e.g. shared-links)
 def plot_all_frac_significant_performance_scatter(dataDB, h5fname):
-    pidTypes = {'unique', 'red', 'syn'}
+    pidTypes = ['unique', 'red', 'syn']
     summaryDF = pid_all_summary_df(h5fname)
 
     for keyLst, dfSession in summaryDF.groupby(['datatype', 'phase']):    # 'mousename'
         keyLabel = '_'.join(keyLst)
 
+        pidDFAll = pd.DataFrame(columns=['pid', 'x', 'y', 'mouse'])
         pidDictNaive = defaultdict(list)
         pidDictExpert = defaultdict(list)
         fig, ax = plt.subplots(nrows=2, ncols=len(pidTypes), figsize=(len(pidTypes) * 4, 8), tight_layout=True)
         for keyLst2, dfSession2 in dfSession.groupby(['mousename']):  # 'mousename'
             print(keyLabel, keyLst2)
 
-            pidDictSession = defaultdict(list)
+
             for idx, row in dfSession2.iterrows():
                 perf = dataDB.get_performance(row['session'])
 
@@ -374,17 +375,25 @@ def plot_all_frac_significant_performance_scatter(dataDB, h5fname):
                     pVal = df1[df1['PID'] == pidType]['p']
 
                     fracSig = np.mean(pVal < 0.01)
-                    pidDictSession[pidType] += [(perf, fracSig)]
+                    pidDFAll = pd_append_row(pidDFAll, [pidType, perf, fracSig, keyLst2])
+                    # pidDFAll[pidType] += [(perf, fracSig, keyLst2)]
                     if perf < 0.7:
                         pidDictNaive[pidType] += [fracSig]
                     else:
                         pidDictExpert[pidType] += [fracSig]
 
-            for iFig, pidType in enumerate(pidTypes):
-                ax[0, iFig].set_title(pidType)
-                ax[0, iFig].set_xlabel('Performance')
-                ax[0, iFig].set_ylabel('Fraction Significant')
-                ax[0, iFig].plot(*np.array(pidDictSession[pidType]).T, '.', label=str(keyLst2))
+        for iFig, pidType in enumerate(pidTypes):
+            ax[0, iFig].set_title(pidType)
+            ax[0, iFig].set_xlabel('Performance')
+            ax[0, iFig].set_ylabel('Fraction Significant')
+
+            dataThis = pidDFAll[pidDFAll['pid'] == pidType]
+            sns.scatterplot(ax=ax[0, iFig], data=dataThis, x='x', y='y', hue='mouse')
+            sns.regplot(ax=ax[0, iFig], data=dataThis, x='x', y='y', scatter=False)
+            ax[0, iFig].set_ylim(-0.01, 1.01)
+
+            # sns.regplot(x=x, y=y, ax=ax[0, iFig])
+            # ax[0, iFig].plot(*np.array(pidDictSession[pidType]).T, '.', label=str(keyLst2))
 
         for iFig, pidType in enumerate(pidTypes):
             ax[0, iFig].legend()
@@ -407,70 +416,122 @@ def plot_all_frac_significant_performance_scatter(dataDB, h5fname):
         plt.close()
 
 
-def _get_pid_mat3D_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes):
-    mat3DmouseDict = defaultdict(dict)
+def _get_pid_sign_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes):
+    # Init dictionary
+    mouseSignDict = {}
+    for pidType in pidTypes:
+        mouseSignDict[pidType] = {}
 
     for mousename, dfSession2 in dfSession.groupby(['mousename']):  # 'mousename'
         print(keyLabel, mousename)
-        channelLabels = dataDB.get_channel_labels(mousename)
-        nChannels = len(channelLabels)
+        channelLabels = np.array(dataDB.get_channel_labels(mousename))
 
-        for pidType in pidTypes:
-            mat3DmouseDict[pidType][mousename] = np.zeros((nChannels, nChannels, nChannels))
-
+        # For each session and each PIDtype, find significant triples and stack their indices
+        signPidDict = {pidType : np.zeros((0, 3), dtype=int) for pidType in pidTypes}
         for idx, row in dfSession2.iterrows():
             df1 = pd.read_hdf(h5fname, key=row['key'])
 
-            # Merge Unique1 and Unique2 for this plot
+            # Swap sources so that first unique is always the significant one
+            idxU2 = df1['PID'] == 'U2'
+            df1.loc[idxU2, ['S1', 'S2']] = df1.loc[idxU2, ['S2', 'S1']].values
+
+            # Merge Unique1 and Unique2
             df1.replace({'PID': {'U1': 'unique', 'U2': 'unique'}}, inplace=True)
 
             # Convert all channel labels to indices
-            for iCh, ch in enumerate(channelLabels):
-                df1.replace({'S1': {ch: iCh}, 'S2': {ch: iCh}, 'T': {ch: iCh}})
+            # for iCh, ch in enumerate(channelLabels):
+            #     df1.replace({'S1': {ch: iCh}, 'S2': {ch: iCh}, 'T': {ch: iCh}})
+            chMap = {ch: iCh for iCh, ch in enumerate(channelLabels)}
+            df1.replace({'S1': chMap, 'S2': chMap, 'T': chMap}, inplace=True)
 
             for pidType in pidTypes:
                 df1PID = df1[df1['PID'] == pidType]
                 df1Sig = df1PID[df1PID['p'] < 0.01]
 
-                for idx, row in df1Sig.iterrows():
-                    x, y, z = row['S1'], row['S2'], row['T']
-                    mat3DmouseDict[pidType][mousename][x, y, z] += 1
+                x, y, z = df1Sig['S1'], df1Sig['S2'], df1Sig['T']
+                x2D = np.array([x,y,z], dtype=int).T
 
-    return mat3DmouseDict
+                signPidDict[pidType] = np.vstack([signPidDict[pidType], x2D])
+
+        # For each PIDtype, for each significant triple, count in how many sessions it is significant
+        nSession = len(dataDB.get_sessions(mousename))
+        for pidType in pidTypes:
+            x2D = signPidDict[pidType]
+            idxs, counts = np.unique(x2D, return_counts=True, axis=0)
+            fractions = counts.astype(float) * 100 / nSession       # Convert to % to account for diff session number in each mouse
+            idxs = np.array(idxs)
+
+            idxNamesX = channelLabels[idxs[:, 0]]
+            idxNamesY = channelLabels[idxs[:, 1]]
+            idxNamesZ = channelLabels[idxs[:, 2]]
+            idxNames = list(zip(idxNamesX, idxNamesY, idxNamesZ))
+
+            mouseSignDict[pidType][mousename] = [idxNames, fractions]
+
+    return mouseSignDict
 
 
-def _plt_all_top_n_triplets(dataDB, mat3DmouseDict, keyLabel, pidTypes, nTop=10):
-    # FIXME: Currently relies on same dimension ordering for all mice
-    channelLabels = dataDB.get_channel_labels(dataDB.mice[0])
-
+def _plt_all_top_n_triplets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=10):
     fig, ax = plt.subplots(ncols=len(pidTypes), figsize=(len(pidTypes) * 4, 4), tight_layout=True)
     for iPid, pidType in enumerate(pidTypes):
-        # 1) Sum all mouse arrays
-        mat3D = np.sum(list(mat3DmouseDict[pidType].values()), axis=0)
+        '''
+          1. Find all nonzero triplets over all mice
+          2. Append zeros for zero triplets for each mouse
+          3. For each mouse, sort all triplets in alphabetic order
+          4. Add counts for each mouse, get total
+          5. Sort total in descending order
+          6. Sort each mouse in descending order
+          7. Barplot
+        '''
 
-        # 2) Find indices of largest values
-        # 3) For each index, get channel names and values by mouse
-        maxIdxs = n_largest_indices(mat3D, nTop)
-        maxLabels = ['_'.join([channelLabels[i] for i in idx]) for idx in maxIdxs]
+        keysAsStr = {mousename : [str(t) for t in data[0]] for mousename, data in mouseSignDict[pidType].items()}
 
-        rezDict = {
-            'mouse': [],
-            'channel': [],
-            'values': []
-        }
+        setNonZeroKeys = set.union(*[set(key) for key in keysAsStr.values()])
+        lstNonZeroKeysAlphabetical = sorted([str(t) for t in setNonZeroKeys])
 
-        for mousename in dataDB.mice:
-            mat3DThis = mat3DmouseDict[pidType][mousename]
-            rezDict['mouse'] += [mousename] * nTop
-            rezDict['channel'] += maxLabels
-            rezDict['values'] += [mat3DThis[idx] for idx in maxIdxs]
+        countsAlphabetical = {}
+        for mousename, mouseData in mouseSignDict[pidType].items():
+            idxNames = keysAsStr[mousename]
+            idxCounts = mouseData[1]
+            missingNames = list(setNonZeroKeys - set(idxNames))
+            idxNamesNew = np.concatenate([idxNames, missingNames], axis=0)
+            idxCountsNew = np.concatenate([idxCounts, np.zeros(len(missingNames))])
+            sortIdxs = np.argsort(idxNamesNew, axis=0)
+            countsAlphabetical[mousename] = idxCountsNew[sortIdxs]
+
+        countsTot = np.sum(list(countsAlphabetical.values()), axis=0)
+        sortIdxs = np.argsort(countsTot)[::-1]
+        # countsTotSorted = countsTot[sortIdxs]
+        lstNonZeroKeysSorted = np.array(lstNonZeroKeysAlphabetical)[sortIdxs]
+        countsSorted = {k: v[sortIdxs] for k, v in countsAlphabetical.items()}
+
+        barplot_stacked_indexed(ax[iPid], countsSorted, xTickLabels=lstNonZeroKeysSorted, xLabel='triplet',
+                                yLabel='4*Percent', title=pidType, iMax=nTop, rotation=90)
+
+        #
+        # # 2) Find indices of largest values
+        # # 3) For each index, get channel names and values by mouse
+        # maxIdxs = n_largest_indices(mat3D, nTop)
+        # maxLabels = ['_'.join([channelLabels[i] for i in idx]) for idx in maxIdxs]
+        #
+        # rezDict = {
+        #     'mouse': [],
+        #     'channel': [],
+        #     'values': []
+        # }
+        #
+        # for mousename in dataDB.mice:
+        #     mat3DThis = mat3DmouseDict[pidType][mousename]
+        #     rezDict['mouse'] += [mousename] * nTop
+        #     rezDict['channel'] += maxLabels
+        #     rezDict['values'] += [mat3DThis[idx] for idx in maxIdxs]
 
         # 4) Plot stacked barplot with absolute numbers. Set ylim_max to total number of sessions
-        barplot_stacked(ax[iPid], pd.DataFrame(rezDict), 'channel', 'mouse')
+        # barplot_stacked(ax[iPid], pd.DataFrame(rezDict), 'channel', 'mouse')
 
         # 5) Consider some significance test maybe
 
-    plt.savefig('PID_top_' + str(nTop) + '_triplets_frac_significant_' + keyLabel + '.png')
+    plt.savefig('PID_top_' + str(nTop) + '_triplets_frac_significant_' + keyLabel + '.pdf')
     plt.close()
 
 
@@ -513,17 +574,17 @@ def _plt_all_top_n_singlets(dataDB, mat3DmouseDict, keyLabel, pidTypes, nTop=10)
 # TODO: Assembling matrix from labels too slow. Figure out from matrix decomposition
 #   -> Matrix decomposition too complicated. Slow better
 def plot_all_top_n_frac_significant(dataDB, h5fname, nTop=10, haveTriplet=True, haveSinglet=True):
-    pidTypes = {'unique', 'red', 'syn'}
+    pidTypes = ['unique', 'red', 'syn']
     summaryDF = pid_all_summary_df(h5fname)
 
     for keyLst, dfSession in summaryDF.groupby(['datatype', 'phase']):    # 'mousename'
         keyLabel = '_'.join(keyLst)
-        mat3DmouseDict = _get_pid_mat3D_dict(dataDB, keyLabel, dfSession, h5fname)
+        mouseSignDict = _get_pid_sign_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes)
 
         # Triplet Analysis
         if haveTriplet:
-            _plt_all_top_n_triplets(dataDB, mat3DmouseDict, keyLabel, pidTypes, nTop=nTop)
+            _plt_all_top_n_triplets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=nTop)
 
         # Singlet Analysis
         if haveSinglet:
-            _plt_all_top_n_singlets(dataDB, mat3DmouseDict, keyLabel, pidTypes, nTop=nTop)
+            _plt_all_top_n_singlets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=nTop)
