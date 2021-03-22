@@ -55,6 +55,11 @@ class preprocess:
         if not os.path.isfile(path):
             print('WARNING: Not found file:', path)
 
+
+############################
+#  Raw data segmentation and pooling
+############################
+
     # Convert session name e.g. 'Session01' to letters like 'a', 'b', 'c'
     def _sessions_to_letters(self, name):
         sessionIdx = int(name[len('session'):]) - 1
@@ -312,6 +317,11 @@ class preprocess:
                 with h5py.File(mouseName + '.h5', 'a') as h5file:
                     h5file['data'].create_dataset(sessionName, data=np.array(dataRSP))
 
+############################
+#  Metadata Pooling
+############################
+
+
     # Different mice have different Go/NoGo testures
     def tex_go_nogo_bymouse(self, mouseName):
         # return 'P100', 'P1200'
@@ -356,9 +366,9 @@ class preprocess:
         return dict(zip(targetTypes, rezLst))
 
     # Read all structure files, process, save to H5. Also compute performance and save to H5
-    def process_metadata_files(self):
+    def process_metadata_files(self, pwd):
         for mouseName, mouseRows in self.dataPaths.groupby(['mouse']):
-            h5name = mouseName + '.h5'
+            h5name = os.path.join(pwd, mouseName + '.h5')
             self._h5_append_group(h5name, 'metadata')
             self._h5_append_group(h5name, 'accuracy')
             self._h5_append_group(h5name, 'dprime')
@@ -414,6 +424,11 @@ class preprocess:
 
         return timesRS, dataRSP
 
+############################
+#  Baseline Subtraction
+############################
+
+
     # Fit polynomial to RSP data, return fit
     def polyfit_data_3D(self, times, dataRSP, ord, alpha):
         timesFlat = times.flatten()
@@ -421,6 +436,9 @@ class preprocess:
 
         rez = np.zeros(dataRSP.shape)
         for iCh in range(dataRSP.shape[2]):
+            if np.any(np.isnan(dataFlat[:, iCh])):
+                print(iCh, len(dataFlat), np.sum(np.isnan(dataFlat[:, iCh])))
+
             # y = polyfit.poly_fit_transform(timesFlat, dataFlat[:, iCh], ord)
             y = natural_cubic_spline_fit_reg(timesFlat, dataFlat[:, iCh], dof=ord, alpha=alpha)
             rez[:, :, iCh] = y.reshape(times.shape)
@@ -447,7 +465,7 @@ class preprocess:
     # For each trial, compute DFF, store back to h5
     def baseline_subtraction_dff(self, pwd, iMin, iMax, skipExist=False):
         for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
-            h5fname = mouseName + '.h5'
+            h5fname = os.path.join(pwd, mouseName + '.h5')
 
             self._h5_append_group(h5fname, 'bn_trial')
 
@@ -465,7 +483,7 @@ class preprocess:
                 times, dataRSP = self.get_pooled_data_rel_times(pwd, mouseName, session)
                 if len(times) != len(dataRSP):
                     print('-- trial mismatch', times.shape, dataRSP.shape)
-                    continue
+                    # continue
 
                 dataBN = np.zeros(dataRSP.shape)
 
@@ -479,7 +497,7 @@ class preprocess:
     # For each session: fit poly, do poly-DFF, store back to h5
     def baseline_subtraction_poly(self, pwd, ord=2, alpha=0.01, skipExist=False):
         for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
-            h5fname = mouseName + '.h5'
+            h5fname = os.path.join(pwd, mouseName + '.h5')
 
             self._h5_append_group(h5fname, 'bn_session')
             self._h5_append_group(h5fname, 'bn_fit')
@@ -487,7 +505,7 @@ class preprocess:
 
             for idx, row in dfMouse.iterrows():
                 session = row['day'] + '_' + row['session']
-                with h5py.File(h5fname, 'r') as h5f:
+                with h5py.File(h5fname, 'a') as h5f:
                     if session in h5f['bn_session'].keys():
                         if skipExist:
                             del h5f['bn_session'][session]
@@ -501,7 +519,7 @@ class preprocess:
                 times, dataRSP = self.get_pooled_data_rel_times(pwd, mouseName, session)
                 if len(times) != len(dataRSP):
                     print('-- trial mismatch', times.shape, dataRSP.shape)
-                    continue
+                    # continue
 
                 dataRSPfit = self.polyfit_data_3D(times, dataRSP, ord, alpha)
 
@@ -512,3 +530,63 @@ class preprocess:
                     h5f['raw'].create_dataset(session, data=dataRaw)
                     h5f['bn_fit'].create_dataset(session, data=dataRSPfit)
                     h5f['bn_session'].create_dataset(session, data=dataBN)
+
+############################
+#  Cleanup
+############################
+
+
+    def drop_preprocess_session(self, pwd, mouseName, session):
+        pwd = os.path.join(pwd, mouseName + '.h5')
+
+        with h5py.File(pwd, 'a') as f:
+            for datatype in ['bn_trial', 'raw', 'bn_fit', 'bn_session']:
+                if session in f[datatype]:
+                    del f[datatype][session]
+                    print('deleted', session, 'from', datatype)
+
+            for metaclass in ['metadata', 'accuracy', 'dprime']:
+                if session in f[metaclass]:
+                    del f[metaclass][session]
+                    print('deleted', session, 'from', metaclass)
+
+
+
+
+
+    def crop_mismatch_trials(self, pwd):
+        for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
+            h5fname = os.path.join(pwd, mouseName + '.h5')
+            for idx, row in dfMouse.iterrows():
+                session = row['day'] + '_' + row['session']
+
+                with h5py.File(h5fname, 'r') as h5f:
+                    if session in h5f['data']:
+                        # if mouseName == 'mou_9':
+                        #     print(h5f['bn_session'].keys())
+                        #     return
+
+                        nTrialData = h5f['data'][session].shape[0]
+                    else:
+                        print('skipping non-existent session', session)
+                        continue
+
+                df = pd.read_hdf(h5fname, '/metadata/' + session)
+
+                nTrialMeta = len(df)
+
+                if nTrialData != nTrialMeta:
+                    if nTrialData < nTrialMeta:
+                        print(mouseName, session, nTrialData, nTrialMeta, 'driopping useless metadata')
+                        nDiff = nTrialMeta - nTrialData
+                        df.drop(df.tail(nDiff).index, inplace=True)  # drop last n rows
+                        df.to_hdf(h5fname, '/metadata/' + session)
+                    else:
+                        print(mouseName, session, nTrialData, nTrialMeta, 'dropping extra unassociated data')
+                        nCrop = nTrialData - nTrialMeta
+
+                        with h5py.File(h5fname, 'a') as h5f:
+                            data = np.copy(h5f['data'][session])
+                            del h5f['data'][session]
+                            h5f['data'][session] = data[:-nCrop]
+
