@@ -158,6 +158,9 @@ class DataFCDatabase:
             else:
                 return np.min(expertIdxs)
 
+    def find_mouse_by_session(self, session):
+        return session[:5]
+
     def cropRSP(self, dataRSP, startTime, endTime):
         assert dataRSP.shape[1] == self.targetLength
 

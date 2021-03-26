@@ -31,7 +31,7 @@ def compute_mean_interval(dataDB, ds, trialTypesTrg, intervDict):
 
 def plot_consistency_significant_activity_byaction(dataDB, ds):
     rows = ds.list_dsets_pd()
-    rows['mousename'] = [session[:5] for session in rows['session']]
+    rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
 
     for (datatype, intervName), rowsMouse in rows.groupby(['datatype', 'interv']):
         pSigDict = {}
@@ -68,7 +68,7 @@ def plot_consistency_significant_activity_byaction(dataDB, ds):
                 ax1[iMouse][jMouse].plot(pSigDict[jName], pSigDict[iName], '.')  # Coefficient flip intended
                 corrCoef[iMouse, jMouse] = np.corrcoef(pSigDict[iName], pSigDict[jName])[0, 1]
 
-        plt.savefig('consistency_significant_activity_bymouse_' + datatype + '_' + intervName + '.png')
+        plt.savefig('pics/consistency_significant_activity_bymouse_' + datatype + '_' + intervName + '.png')
         plt.close()
 
         fig2, ax2 = plt.subplots()
@@ -76,13 +76,13 @@ def plot_consistency_significant_activity_byaction(dataDB, ds):
         imshow(fig2, ax2, corrCoef, title='Significance Correlation', haveColorBar=True, limits=[0, 1],
                xTicks=mice, yTicks=mice)
 
-        plt.savefig('consistency_significant_activity_bymouse_corr_' + datatype + '_' + intervName + '.png')
+        plt.savefig('pics/consistency_significant_activity_bymouse_corr_' + datatype + '_' + intervName + '.png')
         plt.close()
 
 
 def plot_consistency_significant_activity_byphase(dataDB, ds):
     rows = ds.list_dsets_pd()
-    rows['mousename'] = [session[:5] for session in rows['session']]
+    rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
 
     for (datatype, trialType), rowsMouse in rows.groupby(['datatype', 'trialType']):
         pSigDict = {}
@@ -120,7 +120,7 @@ def plot_consistency_significant_activity_byphase(dataDB, ds):
                 ax1[iMouse][jMouse].plot(pSigDict[jName], pSigDict[iName], '.')  # Coefficient flip intended
                 corrCoef[iMouse, jMouse] = np.corrcoef(pSigDict[iName], pSigDict[jName])[0, 1]
 
-        plt.savefig('consistency_significant_activity_byphase_' + datatype + '_' + trialType + '.png')
+        plt.savefig('pics/consistency_significant_activity_byphase_' + datatype + '_' + trialType + '.png')
         plt.close()
 
         fig2, ax2 = plt.subplots()
@@ -128,5 +128,5 @@ def plot_consistency_significant_activity_byphase(dataDB, ds):
         imshow(fig2, ax2, corrCoef, title='Significance Correlation', haveColorBar=True, limits=[0, 1],
                xTicks=mice, yTicks=mice)
 
-        plt.savefig('consistency_significant_activity_byphase_corr_' + datatype + '_' + trialType + '.png')
+        plt.savefig('pics/consistency_significant_activity_byphase_corr_' + datatype + '_' + trialType + '.png')
         plt.close()

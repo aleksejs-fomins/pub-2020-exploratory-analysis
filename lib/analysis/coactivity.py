@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from mesostat.utils.signals.resample import zscore
+from mesostat.utils.signals.filter import zscore
 import mesostat.stat.consistency.pca as pca
 
 
@@ -19,6 +19,9 @@ def plot_pca_consistency(dataDB, intervDict, dropFirst=None):
             for iMouse, mousename in enumerate(mice):
                 dataRSPLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
                                                    cropTime=interv)
+
+                print(set([d.shape[1:] for d in dataRSPLst]))
+
                 dataRSP = np.concatenate(dataRSPLst, axis=0)
                 dataRP = np.mean(dataRSP, axis=1)
                 dataRP = zscore(dataRP, axis=0)
