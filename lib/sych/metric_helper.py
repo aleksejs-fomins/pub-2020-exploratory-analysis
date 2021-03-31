@@ -2,6 +2,7 @@ import numpy as np
 from IPython.display import display
 from ipywidgets import IntProgress
 
+from mesostat.utils.arrays import numpy_nonelist_to_array
 
 def dimord_to_labels(dimOrd):
     dimOrdDict = {
@@ -14,8 +15,7 @@ def dimord_to_labels(dimOrd):
 
 
 def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
-                      dataName=None, cropTime=None,
-                      # datatype=None, trialType=None, performance=None, zscoreDim=None,
+                      dataName=None, cropTime=None, minTrials=1,
                       timeWindow=None, timeAvg=False, metricSettings=None, sweepSettings=None, **kwargs):
 
     # Drop all arguments that were not specified
@@ -32,17 +32,21 @@ def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
     progBar = IntProgress(min=0, max=len(dataLst), description=mousename)
     display(progBar)  # display the bar
     for dataSession in dataLst:
-        # Calculate stuff
-        # IMPORTANT: DO NOT DO ZScore on cropped data at this point. ZScore is done on whole data during extraction
-        if not timeAvg:
-            mc.set_data(dataSession, 'rsp', timeWindow=timeWindow)
+        if dataSession.shape[0] < minTrials:
+            print('Warning: skipping session with too few trials', dataSession.shape[0])
+            rez += [None]
         else:
-            if timeWindow is not None:
-                raise ValueError('Time-averaging and timeWindow are incompatible')
+            # Calculate stuff
+            # IMPORTANT: DO NOT DO ZScore on cropped data at this point. ZScore is done on whole data during extraction
+            if not timeAvg:
+                mc.set_data(dataSession, 'rsp', timeWindow=timeWindow)
+            else:
+                if timeWindow is not None:
+                    raise ValueError('Time-averaging and timeWindow are incompatible')
 
-            mc.set_data(np.nanmean(dataSession, axis=1), 'rp')
+                mc.set_data(np.nanmean(dataSession, axis=1), 'rp')
 
-        rez += [mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)]
+            rez += [mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)]
         progBar.value += 1
 
     if cropTime is not None:
@@ -57,12 +61,11 @@ def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
     if dataName is None:
         dataName = metricName
 
-    ds.save_data(dataName, np.array(rez), attrsDict)
+    ds.save_data(dataName, numpy_nonelist_to_array(rez), attrsDict)
 
 
 def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
-                      dataName=None, cropTime=None,
-                       # datatype=None, trialType=None, performance=None, zscoreDim=None,
+                      dataName=None, cropTime=None, minTrials=1,
                        timeWindow=None, timeAvg=False, metricSettings=None, sweepSettings=None, **kwargs):
 
     # Drop all arguments that were not specified
@@ -76,8 +79,12 @@ def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
     dataLst = dataDB.get_neuro_data(selector, **kwargs)
     dataRSP = np.concatenate(dataLst, axis=0)
 
-    if (len(dataLst) == 0) or len(dataRSP) == 0:
-        print('for', selector, kwargs, 'there are no trials, skipping')
+    print(dataRSP.shape)
+
+    if len(dataLst) == 0:
+        print('for', selector, kwargs, 'there are no sessions, skipping')
+    elif len(dataRSP) < minTrials:
+        print('for', selector, kwargs, 'too few trials', len(dataRSP), ', skipping')
     else:
         # Calculate stuff
         # IMPORTANT: DO NOT DO ZScore on cropped data at this point. ZScore is done on whole data during extraction

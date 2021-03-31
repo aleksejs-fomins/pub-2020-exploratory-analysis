@@ -1,9 +1,12 @@
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
 from IPython.display import display
 from ipywidgets import IntProgress
+import seaborn as sns
 
-from mesostat.utils.pandas_helper import pd_query, pd_move_cols_front, outer_product_df
+from mesostat.utils.pandas_helper import pd_query, pd_move_cols_front, outer_product_df, pd_append_row
+from mesostat.stat.machinelearning import drop_nan_rows
 
 from lib.sych.metric_helper import metric_by_session, metric_by_selector
 
@@ -23,7 +26,7 @@ def _dict_append_auto(d, key, x, xAutoFunc):
 
 
 def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
-                      metricSettings=None, sweepSettings=None, dataTypes='auto',
+                      metricSettings=None, sweepSettings=None, minTrials=1, dataTypes='auto',
                       trialTypeNames=None, perfNames=None, cropTime=None, timeAvg=False, verbose=True):
 
     argSweepDict = {'mousename' : dataDB.mice}
@@ -46,9 +49,7 @@ def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
 
         metric_by_selector(dataDB, mc, ds, {'mousename': row['mousename']}, metricName, dimOrdTrg,
                            dataName=nameSuffix, cropTime=cropTime,
-                           # datatype=datatype,
-                           # trialType=trialType,
-                           # performance=performance,
+                           minTrials=minTrials,
                            timeAvg=timeAvg,
                            zscoreDim=zscoreDim,
                            metricSettings=metricSettings,
@@ -58,7 +59,7 @@ def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
         progBar.value += 1
 
 
-def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix,
+def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix, minTrials=1,
                                  metricSettings=None, sweepSettings=None, dataTypes='auto',
                                  trialTypeNames=None, perfNames=None, cropTime=None, verbose=True):
 
@@ -83,9 +84,7 @@ def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix,
 
         metric_by_session(dataDB, mc, ds, row['mousename'], metricName, '',
                           dataName=nameSuffix,
-                          # datatype=datatype,
-                          # trialType=trialType,
-                          # performance=performance,
+                          minTrials=minTrials,
                           zscoreDim=zscoreDim,
                           metricSettings=metricSettings,
                           sweepSettings=sweepSettings, timeAvg=True, cropTime=cropTime,
@@ -94,17 +93,20 @@ def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix,
         progBar.value += 1
 
 
-def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, ylim=None, yscale=None, verbose=True, xFunc=None, dropCols=None):
+def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, ylim=None, yscale=None,
+                     verbose=True, xFunc=None):#, dropCols=None):
     # 1. Extract all results for this test
     dfAll = ds.list_dsets_pd().fillna('None')
-    if dropCols is not None:
-        dfAll = dfAll.drop(dropCols, axis=1)
+    # if dropCols is not None:
+    #     dfAll = dfAll.drop(dropCols, axis=1)
 
     dfAnalysis = pd_query(dfAll, {'metric' : metricName, "name" : nameSuffix})
     dfAnalysis = pd_move_cols_front(dfAnalysis, ['metric', 'name', 'mousename'])  # Move leading columns forwards for more informative printing/saving
+    dfAnalysis = dfAnalysis.drop(['target_dim', 'datetime', 'shape'], axis=1)
 
     # Loop over all other columns except mousename
-    colsExcl = list(set(dfAnalysis.columns) - {'mousename'})
+    colsExcl = list(set(dfAnalysis.columns) - {'mousename', 'dset'})
+
     for colVals, dfSub in dfAnalysis.groupby(colsExcl):
         plt.figure()
 
@@ -112,6 +114,8 @@ def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, ylim=None, yscal
             print(list(colVals))
 
         for idxMouse, rowMouse in dfSub.iterrows():
+            print(list(rowMouse.values))
+
             dataThis = ds.get_data(rowMouse['dset'])
 
             if prepFunc is not None:
@@ -122,20 +126,141 @@ def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, ylim=None, yscal
             #                         dataThis *= np.sqrt(48*nTrialThis)
             #                         print('--', row['mousename'], nTrialThis)
 
-            if xFunc is None:
-                plt.plot(dataThis, label=rowMouse['mousename'])
-            else:
-                plt.plot(xFunc(len(dataThis)), dataThis, label=rowMouse['mousename'])
+            x = np.arange(len(dataThis)) if xFunc is None else np.array(xFunc(rowMouse['mousename'], len(dataThis)))
+            x, dataThis = drop_nan_rows([x, dataThis])
+
+            plt.plot(x, dataThis, label=rowMouse['mousename'])
 
         if yscale is not None:
             plt.yscale(yscale)
 
-        dataName = rowMouse.drop(['datetime', 'dset', 'shape', 'target_dim'])
+        dataName = rowMouse.drop(['dset', 'mousename'])
         dataName = '_'.join([str(el) for el in dataName])
 
         plt.legend()
+        plt.xlim(xlim)
         plt.ylim(ylim)
-        plt.savefig('pics/' + dataName + '.pdf')
+        plt.savefig('pics/' + dataName + '.png')
+        plt.close()
+
+
+def scatter_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, ylim=None, yscale=None,
+                        verbose=True, xFunc=None, haveRegression=False):#, dropCols=None):
+    # 1. Extract all results for this test
+    dfAll = ds.list_dsets_pd().fillna('None')
+    # if dropCols is not None:
+    #     dfAll = dfAll.drop(dropCols, axis=1)
+
+    dfAnalysis = pd_query(dfAll, {'metric' : metricName, "name" : nameSuffix})
+    dfAnalysis = pd_move_cols_front(dfAnalysis, ['metric', 'name', 'mousename'])  # Move leading columns forwards for more informative printing/saving
+    dfAnalysis = dfAnalysis.drop(['target_dim', 'datetime', 'shape'], axis=1)
+
+    # Loop over all other columns except mousename
+    colsExcl = list(set(dfAnalysis.columns) - {'mousename', 'dset'})
+
+    for colVals, dfSub in dfAnalysis.groupby(colsExcl):
+        fig, ax = plt.subplots()
+
+        if verbose:
+            print(list(colVals))
+
+        xLst = []
+        yLst = []
+        for idxMouse, rowMouse in dfSub.iterrows():
+            print(list(rowMouse.values))
+
+            dataThis = ds.get_data(rowMouse['dset'])
+
+            if prepFunc is not None:
+                dataThis = prepFunc(dataThis)
+
+            #                     if datatype == 'raw':
+            #                         nTrialThis = dataDB.get_ntrial_bytype({'mousename' : row['mousename']}, trialType=trialType, performance=performance)
+            #                         dataThis *= np.sqrt(48*nTrialThis)
+            #                         print('--', row['mousename'], nTrialThis)
+
+            x = np.arange(len(dataThis)) if xFunc is None else np.array(xFunc(rowMouse['mousename'], len(dataThis)))
+            print(dataThis.shape)
+
+            x, dataThis = drop_nan_rows([x, dataThis])
+            print(dataThis.shape)
+
+            ax.plot(x, dataThis, '.', label=rowMouse['mousename'])
+            xLst += [x]
+            yLst += [dataThis]
+
+        if yscale is not None:
+            plt.yscale(yscale)
+
+        dataName = rowMouse.drop(['dset', 'mousename'])
+        dataName = '_'.join([str(el) for el in dataName])
+
+        ax.legend()
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+
+        if haveRegression:
+            sns.regplot(ax=ax, x=np.hstack(xLst), y=np.hstack(yLst), scatter=False)
+
+        fig.savefig('pics/' + dataName + '.png')
+        plt.close()
+
+
+def barplot_conditions(ds, metricName, nameSuffix, verbose=True):
+    '''
+    Sweep over datatypes
+    1. (Mouse * [iGO, iNOGO]) @ {interv='AVG'}
+    2. (Mouse * interv / AVG) @ {trialType=None}
+    '''
+
+    # 1. Extract all results for this test
+    dfAll = ds.list_dsets_pd().fillna('None')
+    # if dropCols is not None:
+    #     dfAll = dfAll.drop(dropCols, axis=1)
+
+    dfAnalysis = pd_query(dfAll, {'metric' : metricName, "name" : nameSuffix})
+    dfAnalysis = pd_move_cols_front(dfAnalysis, ['metric', 'name', 'mousename'])  # Move leading columns forwards for more informative printing/saving
+    dfAnalysis = dfAnalysis.drop(['target_dim', 'datetime', 'shape'], axis=1)
+
+    for datatype, dfDataType in dfAnalysis.groupby(['datatype']):
+        #################################
+        # Plot 1 ::: Mouse * TrialType
+        #################################
+
+        df1 = pd_query(dfDataType, {'cropTime' : 'AVG'})
+        df1 = df1[df1['trialType'] != 'iMISS']
+        df1 = df1[df1['trialType'] != 'iFA']
+        df1 = df1[df1['trialType'] != 'None']
+        dfData1 = pd.DataFrame(columns=['mousename', 'trialType', metricName])
+
+        for idx, row in df1.iterrows():
+            data = ds.get_data(row['dset'])
+            for d in data:
+                dfData1 = pd_append_row(dfData1, [row['mousename'], row['trialType'], d])
+
+        fig, ax = plt.subplots()
+        ax.set_title(datatype)
+        sns.barplot(ax=ax, x="mousename", y=metricName, hue='trialType', data=dfData1)
+        fig.savefig(metricName + '_barplot_trialtype_' + datatype + '.png')
+        plt.close()
+
+        #################################
+        # Plot 2 ::: Mouse * Phase
+        #################################
+
+        df2 = pd_query(dfDataType, {'trialType' : 'None'})
+        df2 = df2[df2['cropTime'] != 'AVG']
+        dfData2 = pd.DataFrame(columns=['mousename', 'phase', metricName])
+
+        for idx, row in df2.iterrows():
+            data = ds.get_data(row['dset'])
+            for d in data:
+                dfData2 = pd_append_row(dfData2, [row['mousename'], row['cropTime'], d])
+
+        fig, ax = plt.subplots()
+        ax.set_title(datatype)
+        sns.barplot(ax=ax, x="mousename", y=metricName, hue='phase', data=dfData2)
+        fig.savefig(metricName + '_barplot_phase_' + datatype + '.png')
         plt.close()
 
 

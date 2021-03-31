@@ -9,6 +9,7 @@ import seaborn as sns
 from mesostat.metric.idtxl_pid import bivariate_pid_3D
 from mesostat.utils.pandas_helper import pd_append_row, pd_query, merge_df_from_dict
 from mesostat.utils.signals.resample import bin_data
+from mesostat.utils.signals.filter import drop_PCA
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
 from mesostat.visualization.mpl_violin import violins_labeled
 from mesostat.visualization.mpl_cdf import cdf_labeled
@@ -35,7 +36,7 @@ def _pairs_unordered(lst):
 
 
 # Calculate 3D PID with two sources and 1 target. If more than one target is provided,
-def pid(dataLst, mc, labelsAll, labelsSrc, labelsTrg, nPerm=1000, nBin=4):
+def pid(dataLst, mc, labelsAll, labelsSrc, labelsTrg, nPerm=1000, nBin=4, nDropPCA=None):
     '''
     :param dataLst:     List of data over sessions, each dataset is of shape 'rsp'
     :param mc:          MetricCalculator
@@ -55,13 +56,19 @@ def pid(dataLst, mc, labelsAll, labelsSrc, labelsTrg, nPerm=1000, nBin=4):
     sourceIdxPairs = _pairs_unordered(sourceIdxs)
 
     # Concatenate all sessions
-    data = np.concatenate(dataLst, axis=0)   # Concatenate trials and sessions
-    data = np.mean(data, axis=1)             # Average out time
-    data = bin_data(data, nBin, axis=1)      # Bin data separately for each channel
+    dataRSP = np.concatenate(dataLst, axis=0)   # Concatenate trials and sessions
+    dataRP  = np.mean(dataRSP, axis=1)          # Average out time
+
+    if nDropPCA is not None:
+        dataRP = drop_PCA(dataRP, nDropPCA)
+
+    dataBin = bin_data(dataRP, nBin, axis=1)      # Bin data separately for each channel
+
+    print(dataBin.shape)
 
     settings_estimator = {'pid_estimator': 'TartuPID', 'lags_pid': [0, 0]}
 
-    mc.set_data(data, 'rp')
+    mc.set_data(dataBin, 'rp')
     rez = mc.metric3D('BivariatePID', '',
                       metricSettings={'settings_estimator': settings_estimator},
                       sweepSettings={'src': sourceIdxPairs, 'trg': targetIdxs})
@@ -73,7 +80,7 @@ def pid(dataLst, mc, labelsAll, labelsSrc, labelsTrg, nPerm=1000, nBin=4):
     # the permutation test is exactly the same for all of them, so we need any three channels as input
     settings_test = {'src': [0, 1], 'trg': 2, 'settings_estimator': settings_estimator}
     fTest = lambda x: bivariate_pid_3D(x, settings_test)
-    dataTest = data[:, :3][..., None]  # Add fake 1D sample dimension
+    dataTest = dataBin[:, :3][..., None]  # Add fake 1D sample dimension
     fRand = perm_test_resample(fTest, dataTest, nPerm, iterAxis=1)
 
     df = pd.DataFrame(columns=['S1', 'S2', 'T', 'PID', 'p', 'effSize', 'muTrue', 'muRand'])
@@ -89,7 +96,7 @@ def pid(dataLst, mc, labelsAll, labelsSrc, labelsTrg, nPerm=1000, nBin=4):
     return df
 
 
-def hypotheses_calc_pid(dataDB, mc, hDict, intervDict, h5outname, datatypes=None, **kwargs):
+def hypotheses_calc_pid(dataDB, mc, hDict, intervDict, h5outname, datatypes=None, nDropPCA=None, **kwargs):
     if datatypes is None:
         datatypes = dataDB.get_data_types()
 
@@ -102,9 +109,10 @@ def hypotheses_calc_pid(dataDB, mc, hDict, intervDict, h5outname, datatypes=None
             for mousename in dataDB.mice:
                 channelNames = dataDB.get_channel_labels(mousename)
                 dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
-                                                zscoreDim=None, cropTime=intervDict[intervKey], **kwargs)
+                                                zscoreDim='rs', cropTime=intervDict[intervKey], **kwargs)
 
-                rezDict[(mousename,)] = pid(dataLst, mc, channelNames, sources, targets, nPerm=2000, nBin=4)
+                rezDict[(mousename,)] = pid(dataLst, mc, channelNames, sources, targets,
+                                            nPerm=2000, nBin=4, nDropPCA=nDropPCA)
 
             rezDF = merge_df_from_dict(rezDict, ['mousename'])
 
@@ -131,7 +139,7 @@ def hypotheses_plot_pid(dataDB, hDict, h5outname, datatypes=None):
                                     ylim=[1.0E-3, 1])
 
 
-def hypotheses_calc_plot_info3D(dataDB, hDict, intervDict, datatypes=None, nBin=4, **kwargs):
+def hypotheses_calc_plot_info3D(dataDB, hDict, intervDict, datatypes=None, nBin=4, nDropPCA=None, **kwargs):
     if datatypes is None:
         datatypes = dataDB.get_data_types()
 
@@ -156,11 +164,15 @@ def hypotheses_calc_plot_info3D(dataDB, hDict, intervDict, datatypes=None, nBin=
                         dataLst = dataDB.get_neuro_data({'mousename': mousename},
                                                         datatype=datatype, cropTime=intervDict[intervKey], **kwargs)
 
-                        data = np.concatenate(dataLst, axis=0)  # Concatenate all sessions
-                        data = np.mean(data, axis=1)  # Average out time
-                        data = bin_data(data, nBin, axis=1)  # Binarize data over channels
+                        dataRSP = np.concatenate(dataLst, axis=0)  # Concatenate all sessions
+                        dataRP = np.mean(dataRSP, axis=1)  # Average out time
 
-                        h3d = np.histogramdd(data[:, [targetIdx, s1Idx, s2Idx]], bins=(nBin,) * 3)[0]
+                        if nDropPCA is not None:
+                            dataRP = drop_PCA(dataRP, nDropPCA)
+
+                        dataBin = bin_data(dataRP, nBin, axis=1)  # Binarize data over channels
+
+                        h3d = np.histogramdd(dataBin[:, [targetIdx, s1Idx, s2Idx]], bins=(nBin,) * 3)[0]
                         h3d /= np.sum(h3d)  # Normalize
 
                         for iTrgBin in range(nBin):
@@ -272,83 +284,92 @@ def pid_all_summary_df(h5fname):
 
 
 # Plot fraction of significant PID's for each session from H5 storage of all-to-all pid file
-def plot_all_frac_significant_bysession(h5fname):
+def plot_all_frac_significant_bysession(dataDB, h5fname, minTrials=50):
     pidTypes = {'unique', 'red', 'syn'}
     summaryDF = pid_all_summary_df(h5fname)
 
     for keyLst, dfSession in summaryDF.groupby(['mousename', 'datatype', 'phase']):
-        keyLabel = '_'.join(keyLst)
-        print(keyLabel)
+        nTrialsThis = dataDB.get_ntrial_bytype({'session': dfSession['session']}, trialType='iGO')
+        if nTrialsThis < minTrials:
+            print('Skipping session', dfSession['session'], 'because it has too few trials', nTrialsThis)
+        else:
+            keyLabel = '_'.join(keyLst)
+            print(keyLabel)
 
-        pidDict = defaultdict(list)
-        for idx, row in dfSession.iterrows():
-            df1 = pd.read_hdf(h5fname, key=row['key'])
+            pidDict = defaultdict(list)
+            for idx, row in dfSession.iterrows():
+                df1 = pd.read_hdf(h5fname, key=row['key'])
 
-            # Merge Unique1 and Unique2 for this plot
-            df1.replace({'PID' : {'U1' : 'unique', 'U2' : 'unique'}}, inplace=True)
+                # Merge Unique1 and Unique2 for this plot
+                df1.replace({'PID' : {'U1' : 'unique', 'U2' : 'unique'}}, inplace=True)
 
+                for pidType in pidTypes:
+                    pVal = df1[df1['PID'] == pidType]['p']
+                    fracSig = np.mean(pVal < 0.01)
+                    pidDict[pidType] += [fracSig]
+
+            plt.figure()
             for pidType in pidTypes:
-                pVal = df1[df1['PID'] == pidType]['p']
-                fracSig = np.mean(pVal < 0.01)
-                pidDict[pidType] += [fracSig]
+                plt.plot(pidDict[pidType], label=pidType)
 
-        plt.figure()
-        for pidType in pidTypes:
-            plt.plot(pidDict[pidType], label=pidType)
-
-        plt.legend()
-        plt.xlabel('session')
-        plt.ylabel('Fraction Significant')
-        plt.savefig('PID_Freq_Significant_' + keyLabel + '.png')
-        plt.close()
-
-
-# Plot distribution of results by PID, session and other params - for all-to-all pid file
-def plot_all_results_distribution(h5fname, plotstyle='cdf'):
-    pidTypes = {'unique', 'red', 'syn'}
-    summaryDF = pid_all_summary_df(h5fname)
-
-    for keyLst, dfSession in summaryDF.groupby(['mousename', 'datatype', 'phase']):
-        keyLabel = '_'.join(keyLst)
-        print(keyLabel)
-
-        for idx, row in dfSession.iterrows():
-            df1 = pd.read_hdf(h5fname, key=row['key'])
-
-            # Merge Unique1 and Unique2 for this plot
-            df1.replace({'PID' : {'U1' : 'unique', 'U2' : 'unique'}}, inplace=True)
-
-            fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
-
-            pVals = []
-            effSizes = []
-            values = []
-            for pidType in pidTypes:
-                dfThis = df1[df1['PID'] == pidType]
-
-                pVals += [np.array(dfThis['p'])]
-                effSizes += [np.array(dfThis['effSize'])]
-                values += [np.array(dfThis['muTrue'])]
-
-            if plotstyle == 'violin':
-                ax[0].axhline(y=0.01, linestyle='--', label='significant')
-                violins_labeled(ax[0], pVals, pidTypes, 'pidType', 'pVal', haveLog=True, violinScale='width')
-                violins_labeled(ax[1], effSizes, pidTypes, 'pidType', 'effSize', haveLog=False, violinScale='width')
-                violins_labeled(ax[2], values, pidTypes, 'pidType', 'Bits', haveLog=False, violinScale='width')
-                plt.savefig('PID_Violin_' + keyLabel + '.png')
-            elif plotstyle == 'cdf':
-                ax[0].axvline(x=0.01, linestyle='--', label='significant')
-                cdf_labeled(ax[0], pVals, pidTypes, 'pVal', haveLog=True)
-                cdf_labeled(ax[1], effSizes, pidTypes, 'effSize', haveLog=False)
-                cdf_labeled(ax[2], values, pidTypes, 'Bits', haveLog=False)
-                plt.savefig('PID_CDF_' + keyLabel + '.png')
-            else:
-                raise ValueError('Unexpected plot style', plotstyle)
-
+            plt.legend()
+            plt.xlabel('session')
+            plt.ylabel('Fraction Significant')
+            plt.savefig('PID_Freq_Significant_' + keyLabel + '.png')
             plt.close()
 
 
-def plot_all_frac_significant_performance_scatter(dataDB, h5fname):
+# Plot distribution of results by PID, session and other params - for all-to-all pid file
+def plot_all_results_distribution(dataDB, h5fname, plotstyle='cdf', minTrials=50):
+    pidTypes = {'unique', 'red', 'syn'}
+    summaryDF = pid_all_summary_df(h5fname)
+
+    for keyLst, dfSession in summaryDF.groupby(['mousename', 'datatype', 'phase']):
+        nTrialsThis = dataDB.get_ntrial_bytype({'session': dfSession['session']}, trialType='iGO')
+        if nTrialsThis < minTrials:
+            print('Skipping session', dfSession['session'], 'because it has too few trials', nTrialsThis)
+        else:
+            keyLabel = '_'.join(keyLst)
+            print(keyLabel)
+
+            for idx, row in dfSession.iterrows():
+                df1 = pd.read_hdf(h5fname, key=row['key'])
+
+                # Merge Unique1 and Unique2 for this plot
+                df1.replace({'PID' : {'U1' : 'unique', 'U2' : 'unique'}}, inplace=True)
+
+                fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
+
+                pVals = []
+                effSizes = []
+                values = []
+                for pidType in pidTypes:
+                    dfThis = df1[df1['PID'] == pidType]
+
+                    pVals += [np.array(dfThis['p'])]
+                    effSizes += [np.array(dfThis['effSize'])]
+                    values += [np.array(dfThis['muTrue'])]
+
+                if plotstyle == 'violin':
+                    ax[0].axhline(y=0.01, linestyle='--', label='significant')
+                    violins_labeled(ax[0], pVals, pidTypes, 'pidType', 'pVal', haveLog=True, violinScale='width')
+                    violins_labeled(ax[1], effSizes, pidTypes, 'pidType', 'effSize', haveLog=False, violinScale='width')
+                    violins_labeled(ax[2], values, pidTypes, 'pidType', 'Bits', haveLog=False, violinScale='width')
+                    plt.savefig('PID_Violin_' + keyLabel + '.png')
+                elif plotstyle == 'cdf':
+                    ax[0].axvline(x=0.01, linestyle='--', label='significant')
+                    cdf_labeled(ax[0], pVals, pidTypes, 'pVal', haveLog=True)
+                    cdf_labeled(ax[1], effSizes, pidTypes, 'effSize', haveLog=False)
+                    cdf_labeled(ax[2], values, pidTypes, 'Bits', haveLog=False)
+                    plt.savefig('PID_CDF_' + keyLabel + '.png')
+                else:
+                    raise ValueError('Unexpected plot style', plotstyle)
+
+                plt.close()
+
+
+# Scatter fraction of significant PID's vs performance from H5 storage of all-to-all pid file
+def plot_all_frac_significant_performance_scatter(dataDB, h5fname, minTrials=50):
     pidTypes = ['unique', 'red', 'syn']
     summaryDF = pid_all_summary_df(h5fname)
 
@@ -362,25 +383,28 @@ def plot_all_frac_significant_performance_scatter(dataDB, h5fname):
         for keyLst2, dfSession2 in dfSession.groupby(['mousename']):  # 'mousename'
             print(keyLabel, keyLst2)
 
-
             for idx, row in dfSession2.iterrows():
-                perf = dataDB.get_performance(row['session'])
+                nTrialsThis = dataDB.get_ntrial_bytype({'session': dfSession['session']}, trialType='iGO')
+                if nTrialsThis < minTrials:
+                    print('Skipping session', dfSession['session'], 'because it has too few trials', nTrialsThis)
+                else:
+                    perf = dataDB.get_performance(row['session'])
 
-                df1 = pd.read_hdf(h5fname, key=row['key'])
+                    df1 = pd.read_hdf(h5fname, key=row['key'])
 
-                # Merge Unique1 and Unique2 for this plot
-                df1.replace({'PID' : {'U1' : 'unique', 'U2' : 'unique'}}, inplace=True)
+                    # Merge Unique1 and Unique2 for this plot
+                    df1.replace({'PID' : {'U1' : 'unique', 'U2' : 'unique'}}, inplace=True)
 
-                for pidType in pidTypes:
-                    pVal = df1[df1['PID'] == pidType]['p']
+                    for pidType in pidTypes:
+                        pVal = df1[df1['PID'] == pidType]['p']
 
-                    fracSig = np.mean(pVal < 0.01)
-                    pidDFAll = pd_append_row(pidDFAll, [pidType, perf, fracSig, keyLst2])
-                    # pidDFAll[pidType] += [(perf, fracSig, keyLst2)]
-                    if perf < 0.7:
-                        pidDictNaive[pidType] += [fracSig]
-                    else:
-                        pidDictExpert[pidType] += [fracSig]
+                        fracSig = np.mean(pVal < 0.01)
+                        pidDFAll = pd_append_row(pidDFAll, [pidType, perf, fracSig, keyLst2])
+                        # pidDFAll[pidType] += [(perf, fracSig, keyLst2)]
+                        if perf < 0.7:
+                            pidDictNaive[pidType] += [fracSig]
+                        else:
+                            pidDictExpert[pidType] += [fracSig]
 
         for iFig, pidType in enumerate(pidTypes):
             ax[0, iFig].set_title(pidType)
@@ -416,7 +440,8 @@ def plot_all_frac_significant_performance_scatter(dataDB, h5fname):
         plt.close()
 
 
-def _get_pid_sign_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes):
+# Compute a list of significant triplets for each pidType and mouse
+def _get_pid_sign_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes, minTrials=50):
     # Init dictionary
     mouseSignDict = {}
     for pidType in pidTypes:
@@ -428,37 +453,42 @@ def _get_pid_sign_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes):
 
         # For each session and each PIDtype, find significant triples and stack their indices
         signPidDict = {pidType : np.zeros((0, 3), dtype=int) for pidType in pidTypes}
+        nSessionGood = 0
         for idx, row in dfSession2.iterrows():
-            df1 = pd.read_hdf(h5fname, key=row['key'])
+            nTrialsThis = dataDB.get_ntrial_bytype({'session': dfSession['session']}, trialType='iGO')
+            if nTrialsThis < minTrials:
+                print('Skipping session', dfSession['session'], 'because it has too few trials', nTrialsThis)
+            else:
+                nSessionGood += 1
+                df1 = pd.read_hdf(h5fname, key=row['key'])
 
-            # Swap sources so that first unique is always the significant one
-            idxU2 = df1['PID'] == 'U2'
-            df1.loc[idxU2, ['S1', 'S2']] = df1.loc[idxU2, ['S2', 'S1']].values
+                # Swap sources so that first unique is always the significant one
+                idxU2 = df1['PID'] == 'U2'
+                df1.loc[idxU2, ['S1', 'S2']] = df1.loc[idxU2, ['S2', 'S1']].values
 
-            # Merge Unique1 and Unique2
-            df1.replace({'PID': {'U1': 'unique', 'U2': 'unique'}}, inplace=True)
+                # Merge Unique1 and Unique2
+                df1.replace({'PID': {'U1': 'unique', 'U2': 'unique'}}, inplace=True)
 
-            # Convert all channel labels to indices
-            # for iCh, ch in enumerate(channelLabels):
-            #     df1.replace({'S1': {ch: iCh}, 'S2': {ch: iCh}, 'T': {ch: iCh}})
-            chMap = {ch: iCh for iCh, ch in enumerate(channelLabels)}
-            df1.replace({'S1': chMap, 'S2': chMap, 'T': chMap}, inplace=True)
+                # Convert all channel labels to indices
+                # for iCh, ch in enumerate(channelLabels):
+                #     df1.replace({'S1': {ch: iCh}, 'S2': {ch: iCh}, 'T': {ch: iCh}})
+                chMap = {ch: iCh for iCh, ch in enumerate(channelLabels)}
+                df1.replace({'S1': chMap, 'S2': chMap, 'T': chMap}, inplace=True)
 
-            for pidType in pidTypes:
-                df1PID = df1[df1['PID'] == pidType]
-                df1Sig = df1PID[df1PID['p'] < 0.01]
+                for pidType in pidTypes:
+                    df1PID = df1[df1['PID'] == pidType]
+                    df1Sig = df1PID[df1PID['p'] < 0.01]
 
-                x, y, z = df1Sig['S1'], df1Sig['S2'], df1Sig['T']
-                x2D = np.array([x,y,z], dtype=int).T
+                    x, y, z = df1Sig['S1'], df1Sig['S2'], df1Sig['T']
+                    x2D = np.array([x,y,z], dtype=int).T
 
-                signPidDict[pidType] = np.vstack([signPidDict[pidType], x2D])
+                    signPidDict[pidType] = np.vstack([signPidDict[pidType], x2D])
 
         # For each PIDtype, for each significant triple, count in how many sessions it is significant
-        nSession = len(dataDB.get_sessions(mousename))
         for pidType in pidTypes:
             x2D = signPidDict[pidType]
             idxs, counts = np.unique(x2D, return_counts=True, axis=0)
-            fractions = counts.astype(float) * 100 / nSession       # Convert to % to account for diff session number in each mouse
+            fractions = counts.astype(float) * 100 / nSessionGood       # Convert to % to account for diff session number in each mouse
             idxs = np.array(idxs)
 
             idxNamesX = channelLabels[idxs[:, 0]]
@@ -471,6 +501,7 @@ def _get_pid_sign_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes):
     return mouseSignDict
 
 
+# Plot top N most significant triplets over all mice. Stack barplots for individual mice
 def _plt_all_top_n_triplets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=10):
     fig, ax = plt.subplots(ncols=len(pidTypes), figsize=(len(pidTypes) * 4, 4), tight_layout=True)
     for iPid, pidType in enumerate(pidTypes):
@@ -508,33 +539,13 @@ def _plt_all_top_n_triplets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=10):
         barplot_stacked_indexed(ax[iPid], countsSorted, xTickLabels=lstNonZeroKeysSorted, xLabel='triplet',
                                 yLabel='4*Percent', title=pidType, iMax=nTop, rotation=90)
 
-        #
-        # # 2) Find indices of largest values
-        # # 3) For each index, get channel names and values by mouse
-        # maxIdxs = n_largest_indices(mat3D, nTop)
-        # maxLabels = ['_'.join([channelLabels[i] for i in idx]) for idx in maxIdxs]
-        #
-        # rezDict = {
-        #     'mouse': [],
-        #     'channel': [],
-        #     'values': []
-        # }
-        #
-        # for mousename in dataDB.mice:
-        #     mat3DThis = mat3DmouseDict[pidType][mousename]
-        #     rezDict['mouse'] += [mousename] * nTop
-        #     rezDict['channel'] += maxLabels
-        #     rezDict['values'] += [mat3DThis[idx] for idx in maxIdxs]
-
-        # 4) Plot stacked barplot with absolute numbers. Set ylim_max to total number of sessions
-        # barplot_stacked(ax[iPid], pd.DataFrame(rezDict), 'channel', 'mouse')
-
         # 5) Consider some significance test maybe
 
     plt.savefig('PID_top_' + str(nTop) + '_triplets_frac_significant_' + keyLabel + '.pdf')
     plt.close()
 
 
+# Plot top N targets with most total significant connections
 def _plt_all_top_n_singlets(dataDB, mat3DmouseDict, keyLabel, pidTypes, nTop=10):
     # FIXME: Currently relies on same dimension ordering for all mice
     channelLabels = dataDB.get_channel_labels(dataDB.mice[0])
@@ -570,10 +581,43 @@ def _plt_all_top_n_singlets(dataDB, mat3DmouseDict, keyLabel, pidTypes, nTop=10)
         plt.close()
 
 
-# FIXME: Pointless with current bug - wait for new data.
-# TODO: Assembling matrix from labels too slow. Figure out from matrix decomposition
-#   -> Matrix decomposition too complicated. Slow better
-def plot_all_top_n_frac_significant(dataDB, h5fname, nTop=10, haveTriplet=True, haveSinglet=True):
+# Plot a matrix of fraction of significant connections for a target channel
+def _plot_all_frac_significant_by_target(dataDB, mouseSignDict, pidType, trgChName):
+    labels = dataDB.get_channel_labels('mvg_4')
+    labelDict = {l: i for i, l in enumerate(labels)}
+    nChannel = len(labels)
+
+    Mrez = np.zeros((nChannel, nChannel))
+    for mousename in dataDB.mice:
+        # Convert stored list to dataframe
+        df = pd.DataFrame(mouseSignDict[pidType][mousename][0], columns=['S1', 'S2', 'T'])
+        df['fr'] = mouseSignDict[pidType][mousename][1]
+
+        # Select target channel
+        df = df[df['T'] == trgChName].drop('T', axis=1)
+
+        # Rename channels back to indices
+        df.replace({'S1': labelDict, 'S2': labelDict}, inplace=True)
+
+        # Construct as matrix
+        M = np.zeros((48, 48))
+        M[df['S1'], df['S2']] = df['fr']
+
+        if pidType != 'unique':
+            M += M.T
+        Mrez += M
+
+    Mrez = Mrez / len(dataDB.mice) / 100.0
+
+    print(np.max(Mrez))
+
+    plt.figure()
+    plt.imshow(Mrez, cmap='jet', vmin=0, vmax=0.5)
+    plt.colorbar()
+    plt.show()
+
+
+def plot_all_top_n_frac_significant(dataDB, h5fname, nTop=10, haveTriplet=True, haveSinglet=True, trgPlotList=None):
     pidTypes = ['unique', 'red', 'syn']
     summaryDF = pid_all_summary_df(h5fname)
 
@@ -588,3 +632,7 @@ def plot_all_top_n_frac_significant(dataDB, h5fname, nTop=10, haveTriplet=True, 
         # Singlet Analysis
         if haveSinglet:
             _plt_all_top_n_singlets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=nTop)
+
+        if trgPlotList is not None:
+            for trgChName in trgPlotList:
+                _plot_all_frac_significant_by_target(dataDB, keyLabel, mouseSignDict, 'syn', trgChName)

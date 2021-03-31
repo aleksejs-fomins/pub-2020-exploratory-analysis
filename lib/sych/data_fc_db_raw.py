@@ -18,6 +18,9 @@ class DataFCDatabase:
         self.mice = set()
         self.dataPathsDict = {}
 
+        # Constants
+        self.expertPerfThr = 0.7
+
         ##################################
         # Define resampling frequency
         ##################################
@@ -124,7 +127,7 @@ class DataFCDatabase:
         mousename = self._selector_to_mousename(selector)
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
-            sessions = selector['session'] if 'session' in selector else self._get_sessions_h5(h5file, performance=performance)
+            sessions = [selector['session']] if 'session' in selector else self._get_sessions_h5(h5file, performance=performance)
             for session in sessions:
                 if trialType is None:
                     rezLst += [len(h5file['trialTypesSelected'][session])]
@@ -138,21 +141,34 @@ class DataFCDatabase:
         with h5py.File(path, 'r') as h5file:
             return self._get_sessions_h5(h5file, datatype=datatype, performance=performance)
 
-    def get_performance(self, session):
-        mousename = self._selector_to_mousename({'session' : session})
+    def get_performance(self, session, mousename=None):
+        if mousename is None:
+            mousename = self._selector_to_mousename({'session' : session})
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
             return float(np.array(h5file['performance'][session]))
 
-    def get_expert_session_idxs(self, mousename, expertThr=0.7):
+    def get_performance_mouse(self, mousename):
+        return [self.get_performance(session, mousename) for session in self.get_sessions(mousename)]
+
+    def get_expert_session_idxs(self, mousename):
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
             sessions = self._get_sessions_h5(h5file)
             performances = np.array([np.array(h5file['performance'][session]) for session in sessions])
-            return np.where(performances >= expertThr)[0]
+            return np.where(performances >= self.expertPerfThr)[0]
 
-    def get_first_expert_session_idx(self, mousename, expertThr=0.7):
-            expertIdxs = self.get_expert_session_idxs(mousename, expertThr=expertThr)
+    def is_expert_session(self, session, mousename=None):
+        return self.get_performance(session, mousename=mousename) >= self.expertPerfThr
+
+    def is_matching_performance(self, session, perfName, mousename=None):
+        assert perfName in ['naive', 'expert']
+        isExpertTrg = self.is_expert_session(session, mousename=mousename)
+        isExpertSession = perfName == 'expert'
+        return (isExpertTrg and isExpertSession) or ((not isExpertTrg) and (not isExpertSession))
+
+    def get_first_expert_session_idx(self, mousename):
+            expertIdxs = self.get_expert_session_idxs(mousename)
             if len(expertIdxs) == 0:
                 return None
             else:

@@ -122,8 +122,12 @@ class DataFCDatabase:
         df = pd.read_hdf(self.datapaths[mousename], '/metadata/'+session)
         return np.array(df['trialType'])
 
+    def get_trial_type_names(self):
+        return ['Hit', 'Miss', 'CR', 'FA']
+
+    #FIXME: Why is there one more label than in allen map? Is our alignment correct?
     def get_channel_labels(self, mousename):
-        return self.channelLabels
+        return self.channelLabels[:27]
 
     def get_nchannels(self, mousename):
         return len(self.get_channel_labels(mousename))
@@ -131,14 +135,17 @@ class DataFCDatabase:
     def get_sessions(self, mousename, datatype=None):
         return self.sessions[mousename]
 
-    def get_perfromance(self, session, mousename=None, metric='accuracy'):
+    def get_performance(self, session, mousename=None, metric='accuracy'):
         if mousename is None:
             mousename = self.find_mouse_by_session(session)
         with h5py.File(self.datapaths[mousename], 'r') as h5file:
-            return h5file[metric][session]
+            return np.copy(h5file[metric][session])
+
+    def get_performance_mouse(self, mousename, metric='accuracy'):
+        return [self.get_performance(session, mousename, metric) for session in self.get_sessions(mousename)]
 
     # If window greater than 1 is provided, return timesteps of data sweeped with a moving window of that length
-    def get_times(self, nTime, window=1):
+    def get_times(self, nTime=160, window=1):
         if window == 1:
             return np.arange(nTime) / self.targetFreq
         else:
@@ -166,7 +173,7 @@ class DataFCDatabase:
         for session in sessions:
             # If requested, only select sessions with Naive/Expert performance
             if performance is not None:
-                p = self.get_perfromance(session, mousename, metric='accuracy')
+                p = self.get_performance(session, mousename, metric='accuracy')
                 if (performance == 'Expert') and p < self.accExpert:
                     continue
                 elif (performance == 'Naive') and p >= self.accExpert:
@@ -189,6 +196,9 @@ class DataFCDatabase:
                 # FIXME: Time index hardcoded. Make sure it works for any dimOrdCanon
                 timeIdxs = np.logical_and(times >= cropTime[0], times < cropTime[1])
                 dataRSP = dataRSP[:, timeIdxs]
+            else:
+                # FIXME: Number of timesteps hardcoded. Perhaps there is a better way
+                dataRSP = dataRSP[:, :160]  # Ensuring all trials that are too long are cropped to this time
 
             dataLst += [dataRSP]
 

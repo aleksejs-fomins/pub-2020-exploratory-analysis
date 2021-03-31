@@ -69,6 +69,8 @@ def plot_fc_explore(dictMag, dictPval, metricName, withBonferroni=False):
         valsPthr = [np.mean(p < pvalThr) for p in valsP]
         ax[1].axhline(y=pvalThr, linestyle='--')
         ax[2].plot(np.arange(len(valsPthr)), valsPthr, '.')
+        ax[2].set_xticks(np.arange(len(valsPthr)))
+        ax[2].set_xticklabels(keys, rotation=90)
 
     plt.show()
 
