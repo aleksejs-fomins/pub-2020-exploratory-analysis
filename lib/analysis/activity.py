@@ -4,12 +4,14 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import mannwhitneyu, wilcoxon, combine_pvalues
 
-from mesostat.utils.pandas_helper import pd_append_row
+from mesostat.utils.pandas_helper import pd_append_row, pd_pivot
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.stat.connectomics import offdiag_1D
 
 
-def compute_mean_interval(dataDB, ds, trialTypesTrg, intervDict):
+def compute_mean_interval(dataDB, ds, trialTypesTrg, intervDict, skipExisting=False):
+    dataName = 'mean'
+
     for iMouse, mousename in enumerate(sorted(dataDB.mice)):
         for datatype in dataDB.get_data_types():
             for trialType in trialTypesTrg:
@@ -17,11 +19,6 @@ def compute_mean_interval(dataDB, ds, trialTypesTrg, intervDict):
                     print(mousename, datatype, trialType, intervName)
 
                     for session in dataDB.get_sessions(mousename, datatype=datatype):
-                        dataRSP = dataDB.get_neuro_data({'session': session}, datatype=datatype,
-                                                        cropTime=interv, trialType=trialType)[0]
-
-                        dataRP = np.mean(dataRSP, axis=1)
-
                         attrsDict = {
                             'datatype': datatype,
                             'session': session,
@@ -29,14 +26,26 @@ def compute_mean_interval(dataDB, ds, trialTypesTrg, intervDict):
                             'interv': intervName
                         }
 
-                        ds.save_data('mean', dataRP, attrsDict)
+                        dsDataLabels = ds.ping_data(dataName, attrsDict)
+                        if not skipExisting and len(dsDataLabels) > 0:
+                            dsuffix = dataName + '_' + '_'.join(attrsDict.values())
+                            print('Skipping existing', dsuffix)
+                        else:
+                            dataRSP = dataDB.get_neuro_data({'session': session}, datatype=datatype,
+                                                            cropTime=interv, trialType=trialType)[0]
+
+                            dataRP = np.mean(dataRSP, axis=1)
+
+                            ds.delete_rows(dsDataLabels, verbose=False)
+                            ds.save_data(dataName, dataRP, attrsDict)
 
 
 def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, performance=None):
     rows = ds.list_dsets_pd()
     rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
 
-    dfConsistency = pd.DataFrame(columns=['datatype', 'phase', 'consistency'])
+    dfColumns = ['datatype', 'phase', 'consistency']
+    dfConsistency = pd.DataFrame(columns=dfColumns)
 
     for (datatype, intervName), rowsMouse in rows.groupby(['datatype', 'interv']):
         pSigDict = {}
@@ -71,7 +80,7 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
 
         plotSuffix = '_'.join([datatype, str(performance), intervName])
 
-        sns.pairplot(data=pd.DataFrame(pSigDict))
+        sns.pairplot(data=pd.DataFrame(pSigDict), vars=mice)
         plt.savefig('pics/consistency_significant_activity_bymouse_' + plotSuffix + '.png')
         plt.close()
 
@@ -86,8 +95,8 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
         avgConsistency = np.round(np.mean(offdiag_1D(corrCoef)), 2)
         dfConsistency = pd_append_row(dfConsistency, [datatype, intervName, avgConsistency])
 
-    dfPivot = dfConsistency.pivot(index='datatype', columns='phase', values='consistency')
     fig, ax = plt.subplots()
+    dfPivot = pd_pivot(dfConsistency, *dfColumns)
     sns.heatmap(data=dfPivot, ax=ax, annot=True, vmax=1, cmap='jet')
     fig.savefig('consistency_significant_activity_action_bymouse_metric_' + str(performance) + '.png')
     plt.close()
@@ -97,7 +106,8 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, minTrials=10, perf
     rows = ds.list_dsets_pd()
     rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
 
-    dfConsistency = pd.DataFrame(columns=['datatype', 'trialType', 'consistency'])
+    dfColumns = ['datatype', 'trialType', 'consistency']
+    dfConsistency = pd.DataFrame(columns=dfColumns)
 
     for (datatype, trialType), rowsMouse in rows.groupby(['datatype', 'trialType']):
         pSigDict = {}
@@ -130,7 +140,7 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, minTrials=10, perf
             for jMouse, jName in enumerate(mice):
                 corrCoef[iMouse, jMouse] = np.corrcoef(pSigDict[iName], pSigDict[jName])[0, 1]
 
-        sns.pairplot(data=pd.DataFrame(pSigDict))
+        sns.pairplot(data=pd.DataFrame(pSigDict), vars=mice)
         plt.savefig('pics/consistency_significant_activity_byphase_' + datatype + '_' + trialType + '.png')
         plt.close()
 
@@ -145,8 +155,8 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, minTrials=10, perf
         avgConsistency = np.round(np.mean(offdiag_1D(corrCoef)), 2)
         dfConsistency = pd_append_row(dfConsistency, [datatype, trialType, avgConsistency])
 
-    dfPivot = dfConsistency.pivot(index='datatype', columns='trialType', values='consistency')
     fig, ax = plt.subplots()
+    dfPivot = pd_pivot(dfConsistency, *dfColumns)
     sns.heatmap(data=dfPivot, ax=ax, annot=True, vmax=1, cmap='jet')
     fig.savefig('consistency_significant_activity_phase_bymouse_metric_' + str(performance) + '.png')
     plt.close()

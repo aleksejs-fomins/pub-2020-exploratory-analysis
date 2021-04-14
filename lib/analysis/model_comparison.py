@@ -7,7 +7,7 @@ from mesostat.visualization.mpl_violin import violins_labeled
 from mesostat.utils.pandas_helper import outer_product_df
 
 
-def corr_evaluation(dataDB, mc, intervDict, estimator, datatype, trialTypes=None):
+def corr_evaluation(dataDB, mc, intervDict, estimator, datatype, trialTypes=None, minTrials=50):
     resultsDict = {'corr' : {}, 'pval' : {}}
 
     argSweepDict = {
@@ -32,7 +32,7 @@ def corr_evaluation(dataDB, mc, intervDict, estimator, datatype, trialTypes=None
 
             nTrials, nTime, nChannel = dataRSP.shape
 
-            if nTrials < 50:
+            if nTrials < minTrials:
                 print('Too few trials =', nTrials, ' for', session, kwargs, ': skipping')
             else:
                 mc.set_data(dataRSP, 'rsp')

@@ -7,7 +7,7 @@ from sklearn.decomposition import PCA
 from mesostat.utils.signals.filter import zscore, drop_PCA
 import mesostat.stat.consistency.pca as pca
 from mesostat.stat.connectomics import offdiag_1D
-from mesostat.utils.pandas_helper import outer_product_df, pd_append_row
+from mesostat.utils.pandas_helper import outer_product_df, pd_append_row, pd_pivot
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
 
@@ -47,7 +47,6 @@ def corr_plot_session_composite(dataDB, mc, intervDict, estimator, datatype, nDr
         # metricSettings={'timeAvg' : True, 'havePVal' : False, 'estimator' : estimator}
         metricSettings={'havePVal' : False, 'estimator' : estimator}
         rez2D = mc.metric3D('corr', '', metricSettings=metricSettings)
-
 
         plotSuffix = datatype + '_' + '_'.join(list(row.values))
         plt.figure()
@@ -104,6 +103,9 @@ def plot_pca_alignment_bymouse(dataDB, datatype='bn_session', trialType=None):
     # Compute pca_alignment coefficient
     matAlign = np.zeros((nMouse, nMouse))
     for iMouse in range(nMouse):
+        ax2[iMouse][0].set_ylabel(mice[iMouse])
+        ax2[-1][iMouse].set_xlabel(mice[iMouse])
+
         for jMouse in range(nMouse):
             matVar = np.outer(varLst[iMouse], varLst[jMouse])
             matComp = np.abs(compLst[iMouse].dot(compLst[jMouse].T))
@@ -169,7 +171,8 @@ def plot_pca_consistency(dataDB, intervDict, dropFirst=None):
     mice = sorted(dataDB.mice)
     nMice = len(mice)
 
-    dfConsistency = pd.DataFrame(columns=['datatype', 'phase', 'consistency'])
+    dfColumns = ['datatype', 'phase', 'consistency']
+    dfConsistency = pd.DataFrame(columns=dfColumns)
 
     for datatype in dataDB.get_data_types():
         for intervName, interv in intervDict.items():
@@ -194,6 +197,9 @@ def plot_pca_consistency(dataDB, intervDict, dropFirst=None):
 
             rezMat = np.zeros((nMice, nMice))
             for iMouse in range(nMice):
+                ax[iMouse][0].set_ylabel(mice[iMouse])
+                ax[-1][iMouse].set_xlabel(mice[iMouse])
+
                 for jMouse in range(nMice):
                     rezXY, rezYX, arrXX, arrXY, arrYY, arrYX = pca.paired_comparison(
                         dataLst[iMouse], dataLst[jMouse], dropFirst=dropFirst)
@@ -206,17 +212,16 @@ def plot_pca_consistency(dataDB, intervDict, dropFirst=None):
             plt.savefig('pca_consistency_bymouse_evals_' + fnameSuffix + '.png')
             plt.close()
 
-            plt.figure()
-            plt.imshow(rezMat, vmin=0, vmax=1)
-            plt.colorbar()
+            fig, ax = plt.subplots()
+            imshow(fig, ax, rezMat, haveColorBar=True, limits=[0,1], xTicks=mice, yTicks=mice)
             plt.savefig('pca_consistency_bymouse_metric_' + fnameSuffix + '.png')
             plt.close()
 
             avgConsistency = np.round(np.mean(offdiag_1D(rezMat)), 2)
             dfConsistency = pd_append_row(dfConsistency, [datatype, intervName, avgConsistency])
 
-    dfPivot = dfConsistency.pivot(index='datatype', columns='phase', values='consistency')
     fig, ax = plt.subplots()
+    dfPivot = pd_pivot(dfConsistency, *dfColumns)
     sns.heatmap(data=dfPivot, ax=ax, annot=True, vmin=0, vmax=1, cmap='jet')
     fig.savefig('consistency_coactivity_metric.png')
     plt.close()

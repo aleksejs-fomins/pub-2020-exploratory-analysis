@@ -4,9 +4,11 @@ import matplotlib.pyplot as plt
 from IPython.display import display
 from ipywidgets import IntProgress
 import seaborn as sns
+import statannot
 
 from mesostat.utils.pandas_helper import pd_query, pd_move_cols_front, outer_product_df, pd_append_row
 from mesostat.stat.machinelearning import drop_nan_rows
+from mesostat.visualization.mpl_barplot import sns_barplot
 
 from lib.sych.metric_helper import metric_by_session, metric_by_selector
 
@@ -25,7 +27,7 @@ def _dict_append_auto(d, key, x, xAutoFunc):
         d[key] = x
 
 
-def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
+def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExisting=False,
                       metricSettings=None, sweepSettings=None, minTrials=1, dataTypes='auto',
                       trialTypeNames=None, perfNames=None, cropTime=None, timeAvg=False, verbose=True):
 
@@ -48,7 +50,9 @@ def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
             print(metricName, nameSuffix, kwargs)
 
         metric_by_selector(dataDB, mc, ds, {'mousename': row['mousename']}, metricName, dimOrdTrg,
-                           dataName=nameSuffix, cropTime=cropTime,
+                           dataName=nameSuffix,
+                           skipExisting=skipExisting,
+                           cropTime=cropTime,
                            minTrials=minTrials,
                            timeAvg=timeAvg,
                            zscoreDim=zscoreDim,
@@ -59,7 +63,7 @@ def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix,
         progBar.value += 1
 
 
-def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix, minTrials=1,
+def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix, minTrials=1, skipExisting=False,
                                  metricSettings=None, sweepSettings=None, dataTypes='auto',
                                  trialTypeNames=None, perfNames=None, cropTime=None, verbose=True):
 
@@ -83,6 +87,7 @@ def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix, minTria
             print(metricName, nameSuffix, kwargs)
 
         metric_by_session(dataDB, mc, ds, row['mousename'], metricName, '',
+                          skipExisting=skipExisting,
                           dataName=nameSuffix,
                           minTrials=minTrials,
                           zscoreDim=zscoreDim,
@@ -206,7 +211,7 @@ def scatter_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, yl
         plt.close()
 
 
-def barplot_conditions(ds, metricName, nameSuffix, verbose=True):
+def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None):
     '''
     Sweep over datatypes
     1. (Mouse * [iGO, iNOGO]) @ {interv='AVG'}
@@ -228,9 +233,9 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True):
         #################################
 
         df1 = pd_query(dfDataType, {'cropTime' : 'AVG'})
-        df1 = df1[df1['trialType'] != 'iMISS']
-        df1 = df1[df1['trialType'] != 'iFA']
-        df1 = df1[df1['trialType'] != 'None']
+        if trialTypes is not None:
+            df1 = df1[df1['trialType'].isin(trialTypes)]
+
         dfData1 = pd.DataFrame(columns=['mousename', 'trialType', metricName])
 
         for idx, row in df1.iterrows():
@@ -238,9 +243,10 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True):
             for d in data:
                 dfData1 = pd_append_row(dfData1, [row['mousename'], row['trialType'], d])
 
+        dfData1 = dfData1.sort_values('mousename')
         fig, ax = plt.subplots()
-        ax.set_title(datatype)
-        sns.barplot(ax=ax, x="mousename", y=metricName, hue='trialType', data=dfData1)
+        sns_barplot(ax, dfData1, "mousename", metricName, 'trialType', annotHue=True)
+        # sns.barplot(ax=ax, x="mousename", y=metricName, hue='trialType', data=dfData1)
         fig.savefig(metricName + '_barplot_trialtype_' + datatype + '.png')
         plt.close()
 
@@ -257,9 +263,11 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True):
             for d in data:
                 dfData2 = pd_append_row(dfData2, [row['mousename'], row['cropTime'], d])
 
+        dfData2 = dfData2.sort_values('mousename')
+
         fig, ax = plt.subplots()
-        ax.set_title(datatype)
-        sns.barplot(ax=ax, x="mousename", y=metricName, hue='phase', data=dfData2)
+        sns_barplot(ax, dfData2, "mousename", metricName, 'phase', annotHue=False)
+        # sns.barplot(ax=ax, x="mousename", y=metricName, hue='phase', data=dfData2)
         fig.savefig(metricName + '_barplot_phase_' + datatype + '.png')
         plt.close()
 

@@ -17,6 +17,7 @@ def mouse_performance_single_session(nTrialData, behaviour):
 
     return (nTrialGO + nTrialNOGO) / nTrialTot
 
+
 # Mark days as naive or expert based on performance threshold
 def mouse_performance_allsessions(datesLst, perfLst, pTHR):
     nDays = len(datesLst)

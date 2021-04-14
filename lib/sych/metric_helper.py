@@ -15,98 +15,110 @@ def dimord_to_labels(dimOrd):
 
 
 def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
-                      dataName=None, cropTime=None, minTrials=1,
+                      dataName=None, skipExisting=False, cropTime=None, minTrials=1,
                       timeWindow=None, timeAvg=False, metricSettings=None, sweepSettings=None, **kwargs):
 
     # Drop all arguments that were not specified
     # In some use cases non-specified arguments are not implemented
     # kwargs = {'trialType': trialType, 'zscoreDim': zscoreDim, 'datatype': datatype, 'performance': performance}
-    if cropTime is not None:
-        kwargs['cropTime'] = cropTime[1]
-
-    kwargs = {k : v for k, v in kwargs.items() if v is not None}
-
-    dataLst = dataDB.get_neuro_data({'mousename': mousename}, **kwargs)
-
-    rez = []
-    progBar = IntProgress(min=0, max=len(dataLst), description=mousename)
-    display(progBar)  # display the bar
-    for dataSession in dataLst:
-        if dataSession.shape[0] < minTrials:
-            print('Warning: skipping session with too few trials', dataSession.shape[0])
-            rez += [None]
-        else:
-            # Calculate stuff
-            # IMPORTANT: DO NOT DO ZScore on cropped data at this point. ZScore is done on whole data during extraction
-            if not timeAvg:
-                mc.set_data(dataSession, 'rsp', timeWindow=timeWindow)
-            else:
-                if timeWindow is not None:
-                    raise ValueError('Time-averaging and timeWindow are incompatible')
-
-                mc.set_data(np.nanmean(dataSession, axis=1), 'rp')
-
-            rez += [mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)]
-        progBar.value += 1
+    kwargs = {k: v for k, v in kwargs.items() if v is not None}
+    kwargsQuery = kwargs.copy()
+    kwargsDS = kwargs.copy()
 
     if cropTime is not None:
-        kwargs['cropTime'] = cropTime[0]
-    attrsDict = {
-        **kwargs, **{
-        'mousename': mousename,
-        'metric': metricName,
-        'target_dim': str(('sessions',) + dimord_to_labels(dimOrdTrg))
-    }}
+        kwargsQuery['cropTime'] = cropTime[1]
+        kwargsDS['cropTime'] = cropTime[0]
 
     if dataName is None:
         dataName = metricName
 
-    ds.save_data(dataName, numpy_nonelist_to_array(rez), attrsDict)
+    attrsDict = {
+        **kwargsDS, **{
+        'mousename': mousename,
+        'metric': metricName,
+        'target_dim': str(('sessions',) + dimord_to_labels(dimOrdTrg)).replace("'", "")
+    }}
+
+    dsDataLabels = ds.ping_data(dataName, attrsDict)
+    if not skipExisting and len(dsDataLabels) > 0:
+        dsuffix = dataName + '_' + '_'.join(attrsDict.values())
+        print('Skipping existing', dsuffix)
+    else:
+        dataLst = dataDB.get_neuro_data({'mousename': mousename}, **kwargsQuery)
+
+        rez = []
+        progBar = IntProgress(min=0, max=len(dataLst), description=mousename)
+        display(progBar)  # display the bar
+        for dataSession in dataLst:
+            if dataSession.shape[0] < minTrials:
+                print('Warning: skipping session with too few trials', dataSession.shape[0])
+                rez += [None]
+            else:
+                # Calculate stuff
+                # IMPORTANT: DO NOT DO ZScore on cropped data at this point. ZScore is done on whole data during extraction
+                if not timeAvg:
+                    mc.set_data(dataSession, 'rsp', timeWindow=timeWindow)
+                else:
+                    if timeWindow is not None:
+                        raise ValueError('Time-averaging and timeWindow are incompatible')
+
+                    mc.set_data(np.nanmean(dataSession, axis=1), 'rp')
+
+                rez += [mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)]
+            progBar.value += 1
+
+        ds.delete_rows(dsDataLabels, verbose=False)
+        ds.save_data(dataName, numpy_nonelist_to_array(rez), attrsDict)
 
 
 def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
-                      dataName=None, cropTime=None, minTrials=1,
+                       dataName=None, skipExisting=False, cropTime=None, minTrials=1,
                        timeWindow=None, timeAvg=False, metricSettings=None, sweepSettings=None, **kwargs):
 
     # Drop all arguments that were not specified
     # In some use cases non-specified arguments are not implemented
     #kwargs = {'trialType': trialType, 'zscoreDim': zscoreDim, 'datatype': datatype, 'performance': performance}
+    kwargsQuery = kwargs.copy()
+    kwargsDS = kwargs.copy()
+    kwargsDS = {k: str(v) for k, v in kwargsDS.items()}
+
     if cropTime is not None:
-        kwargs['cropTime'] = cropTime[1]
+        kwargsQuery['cropTime'] = cropTime[1]
+        kwargsDS['cropTime'] = cropTime[0]
 
-    kwargs = {k : v for k, v in kwargs.items() if v is not None}
+    if dataName is None:
+        dataName = metricName
 
-    dataLst = dataDB.get_neuro_data(selector, **kwargs)
-    dataRSP = np.concatenate(dataLst, axis=0)
-
-    print(dataRSP.shape)
-
-    if len(dataLst) == 0:
-        print('for', selector, kwargs, 'there are no sessions, skipping')
-    elif len(dataRSP) < minTrials:
-        print('for', selector, kwargs, 'too few trials', len(dataRSP), ', skipping')
-    else:
-        # Calculate stuff
-        # IMPORTANT: DO NOT DO ZScore on cropped data at this point. ZScore is done on whole data during extraction
-        if not timeAvg:
-            mc.set_data(dataRSP, 'rsp', timeWindow=timeWindow)
-        else:
-            if timeWindow is not None:
-                raise ValueError('Time-averaging and timeWindow are incompatible')
-
-            mc.set_data(np.nanmean(dataRSP, axis=1), 'rp')
-
-        rez = mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)
-
-        if cropTime is not None:
-            kwargs['cropTime'] = cropTime[0]
-        attrsDict = {
-            **kwargs, **selector, **{
+    attrsDict = {
+        **kwargsDS, **selector, **{
             'metric': metricName,
-            'target_dim': str(dimord_to_labels(dimOrdTrg))
+            'target_dim': str(dimord_to_labels(dimOrdTrg)).replace("'", "")
         }}
 
-        if dataName is None:
-            dataName = metricName
+    dsDataLabels = ds.ping_data(dataName, attrsDict)
+    if not skipExisting and len(dsDataLabels) > 0:
+        dsuffix = dataName + '_' + '_'.join(attrsDict.values())
+        print('Skipping existing', dsuffix)
+    else:
+        dataLst = dataDB.get_neuro_data(selector, **kwargsQuery)
+        dataRSP = np.concatenate(dataLst, axis=0)
 
-        ds.save_data(dataName, np.array(rez), attrsDict)
+        if len(dataLst) == 0:
+            print('for', selector, kwargsDS, 'there are no sessions, skipping')
+        elif len(dataRSP) < minTrials:
+            print('for', selector, kwargsDS, 'too few trials', len(dataRSP), ', skipping')
+        else:
+            # Calculate stuff
+            # IMPORTANT: DO NOT DO ZScore on cropped data at this point. ZScore is done on whole data during extraction
+            if not timeAvg:
+                mc.set_data(dataRSP, 'rsp', timeWindow=timeWindow)
+            else:
+                if timeWindow is not None:
+                    raise ValueError('Time-averaging and timeWindow are incompatible')
+
+                mc.set_data(np.nanmean(dataRSP, axis=1), 'rp')
+
+            rez = mc.metric3D(metricName, dimOrdTrg, metricSettings=metricSettings, sweepSettings=sweepSettings)
+
+            ds.delete_rows(dsDataLabels, verbose=False)
+            ds.save_data(dataName, np.array(rez), attrsDict)

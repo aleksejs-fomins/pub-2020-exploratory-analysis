@@ -4,7 +4,7 @@ from scipy.stats import combine_pvalues
 
 from mesostat.stat.connectomics import offdiag_idx
 from mesostat.metric.corr import corr_2D
-from mesostat.utils.signals.resample import polyfit_transform
+from mesostat.utils.signals.fit import polyfit_transform
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.utils.pandas_helper import outer_product_df
 
@@ -28,16 +28,15 @@ def _sweep_iter(dataDB, mousename, intervDict=None, trialTypes=None):
         yield row, kwargs
 
 
-def correlation_by_session(dataDB, datatype, intervDict=None, trialTypes=None):
+def correlation_by_session(dataDB, datatype, intervDict=None, trialTypes=None, minTrials=50):
     for mousename in sorted(dataDB.mice):
         for row, kwargs in _sweep_iter(dataDB, mousename, intervDict=intervDict, trialTypes=trialTypes):
             dataRSP = dataDB.get_neuro_data({'session': row['session']}, datatype=datatype, **kwargs)[0]
 
             dataRP = np.mean(dataRSP, axis=1)
             nTrials, nChannel = dataRP.shape
-            results = np.zeros((nChannel, nChannel))
 
-            if nTrials < 50:
+            if nTrials < minTrials:
                 print('Too few trials =', nTrials, ' for', row.values, ': skipping')
             else:
                 corr = corr_2D(dataRP.T)
@@ -49,7 +48,7 @@ def correlation_by_session(dataDB, datatype, intervDict=None, trialTypes=None):
                 plt.close()
 
 
-def linear_fit_correlation(dataDB, datatype, intervDict=None, trialTypes=None):
+def linear_fit_correlation(dataDB, datatype, intervDict=None, trialTypes=None, minTrials=50):
     for mousename in sorted(dataDB.mice):
         for row, kwargs in _sweep_iter(dataDB, mousename, intervDict=intervDict, trialTypes=trialTypes):
             dataRSP = dataDB.get_neuro_data({'session': row['session']}, datatype=datatype, **kwargs)[0]
@@ -58,7 +57,7 @@ def linear_fit_correlation(dataDB, datatype, intervDict=None, trialTypes=None):
             nTrials, nChannel = dataRP.shape
             results = np.zeros((nChannel, nChannel))
 
-            if nTrials < 50:
+            if nTrials < minTrials:
                 print('Too few trials =', nTrials, ' for', row.values, ': skipping')
             else:
                 for iChannel in range(nChannel):

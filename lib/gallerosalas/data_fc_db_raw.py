@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 # Mesostat
 from mesostat.utils.matlab_helper import loadmat
 from mesostat.utils.signals.filter import zscore_dim_ord
+from mesostat.utils.strings import enum_nonunique
 
 # Local
 
@@ -58,6 +59,10 @@ class DataFCDatabase:
             raise ValueError("Can't find file", labelFileName)
 
         self.channelLabels = loadmat(labelFileName)['ROI_names']
+
+        # Make array unique
+        self.channelLabels = enum_nonunique(self.channelLabels)
+        assert len(self.channelLabels) == len(set(self.channelLabels))
 
     def _find_read_allen_map(self, path):
         '''
@@ -124,6 +129,22 @@ class DataFCDatabase:
 
     def get_trial_type_names(self):
         return ['Hit', 'Miss', 'CR', 'FA']
+
+    def get_ntrial_bytype(self, selector, trialType=None):
+        trialTypes = [trialType] if trialType is not None else self.get_trial_type_names()
+        if 'mousename' in selector:
+            mousename = selector['mousename']
+            sessions = self.get_sessions(mousename)
+        else:
+            mousename = self.find_mouse_by_session(selector['session'])
+            sessions = [selector['session']]
+
+        rez = 0
+        for session in sessions:
+            trialTypesThis = self.get_trial_types(session, mousename)
+            for tt in trialTypes:
+                rez += np.sum(trialTypesThis == tt)
+        return rez
 
     #FIXME: Why is there one more label than in allen map? Is our alignment correct?
     def get_channel_labels(self, mousename):

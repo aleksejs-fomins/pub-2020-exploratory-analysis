@@ -23,7 +23,8 @@ def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None
             mat[:, dropY] = np.nan
 
         # Plot data
-        imshow(fig, ax[0][iMouse], mat, xlabel=shapeLabels[0], ylabel=shapeLabels[1], title=mousename, haveColorBar=True, limits=limits, cmap=cmap, aspect=aspect)
+        imshow(fig, ax[0][iMouse], mat, xlabel=shapeLabels[0], ylabel=shapeLabels[1], title=mousename,
+               haveColorBar=True, limits=limits, cmap=cmap, aspect=aspect)
 
         if havePerf:
             thrIdx = dataDB.get_first_expert_session_idx(mousename)
@@ -34,7 +35,8 @@ def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None
     plt.show()
 
 
-def imshow_dataset_by_session(dataDB, ds, dsetName, plotNameSuffix='', limits=None, cmap='jet', aspect=None, colBased=True, fig1size=(5,5)):
+def imshow_dataset_by_session(dataDB, ds, dsetName, plotNameSuffix='', limits=None,
+                              cmap='jet', aspect=None, colBased=True, fig1size=(5,5)):
     resultDF = ds.list_dsets_pd()
 
     for iMouse, mousename in enumerate(sorted(dataDB.mice)):
