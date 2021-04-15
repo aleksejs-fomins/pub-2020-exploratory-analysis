@@ -477,7 +477,7 @@ def _get_pid_sign_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes, minTrials
     for pidType in pidTypes:
         mouseSignDict[pidType] = {}
 
-    for mousename, dfSession2 in dfSession.groupby(['mousename']):  # 'mousename'
+    for mousename, dfSession2 in dfSession.groupby(['mousename']):
         print(keyLabel, mousename)
         channelLabels = np.array(dataDB.get_channel_labels(mousename))
 
@@ -528,7 +528,7 @@ def _get_pid_sign_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes, minTrials
 
 
 # Plot top N most significant triplets over all mice. Stack barplots for individual mice
-def _plt_all_top_n_triplets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=10):
+def plot_all_frac_significant_3D_top_n(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=10):
     fig, ax = plt.subplots(ncols=len(pidTypes), figsize=(len(pidTypes) * 4, 4), tight_layout=True)
     for iPid, pidType in enumerate(pidTypes):
         '''
@@ -572,7 +572,7 @@ def _plt_all_top_n_triplets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=10):
 
 
 # Plot top N targets with most total significant connections
-def _plt_all_top_n_singlets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=10):
+def plot_all_frac_significant_1D_top_n(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=10):
     # FIXME: Currently relies on same dimension ordering for all mice
     channelLabels = dataDB.get_channel_labels(list(dataDB.mice)[0])
     nChannel = len(channelLabels)
@@ -608,61 +608,65 @@ def _plt_all_top_n_singlets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=10):
     plt.close()
 
 
-# Plot a matrix of fraction of significant connections for a target channel
-def _plot_all_frac_significant_by_target(dataDB, keylabel, mouseSignDict, pidType, trgChName):
-    labels = dataDB.get_channel_labels('mvg_4')
+def _sign_dict_to_3D_mat(dataDB, mouseSignDict, pidType):
+    labels = dataDB.get_channel_labels()
     labelDict = {l: i for i, l in enumerate(labels)}
     nChannel = len(labels)
 
-    Mrez = np.zeros((nChannel, nChannel))
+    Mrez = np.zeros((nChannel, nChannel, nChannel))
     for mousename in dataDB.mice:
         # Convert stored list to dataframe
         df = pd.DataFrame(mouseSignDict[pidType][mousename][0], columns=['S1', 'S2', 'T'])
         df['fr'] = mouseSignDict[pidType][mousename][1]
 
         # Select target channel
-        df = df[df['T'] == trgChName].drop('T', axis=1)
+        # df = df[df['T'] == trgChName].drop('T', axis=1)
 
         # Rename channels back to indices
-        df.replace({'S1': labelDict, 'S2': labelDict}, inplace=True)
+        # df.replace({'S1': labelDict, 'S2': labelDict}, inplace=True)
+        df.replace({'S1': labelDict, 'S2': labelDict, 'T': labelDict}, inplace=True)
 
         # Construct as matrix
-        M = np.zeros((48, 48))
-        M[df['S1'], df['S2']] = df['fr']
+        M = np.zeros((nChannel, nChannel, nChannel))
+        M[df['S1'], df['S2'], df['T']] = df['fr']
 
         if pidType != 'unique':
-            M += M.T
+            # M += M.T
+            M += M.transpose((1,0,2))
         Mrez += M
 
     Mrez = Mrez / len(dataDB.mice) / 100.0
+    return Mrez
 
-    print(np.max(Mrez))
+
+# Plot a matrix of fraction of significant connections for a target channel
+def plot_all_frac_significant_2D_avg(dataDB, mouseSignDict, keylabel, pidTypes):
+    for pidType in pidTypes:
+        Mrez3D = _sign_dict_to_3D_mat(dataDB, mouseSignDict, pidType)
+        nChannel = Mrez3D.shape[0]
+        Mrez2D = np.sum(Mrez3D, axis=2) / (nChannel-2)   # Target can't be either of the sources
+
+        print(np.max(Mrez2D))
+
+        plt.figure()
+        plt.imshow(Mrez2D, cmap='jet', vmin=0, vmax=0.5)
+        plt.colorbar()
+        plt.savefig('PID_2D_' + '_'.join([pidType, 'AVG', keylabel]) + '.png')
+        plt.close()
+
+
+# Plot a matrix of fraction of significant connections for a target channel
+def plot_all_frac_significant_2D_by_target(dataDB, mouseSignDict, keylabel, pidType, trgChName):
+    labels = dataDB.get_channel_labels()
+    trgIdx = labels.index(trgChName)
+    Mrez3D = _sign_dict_to_3D_mat(dataDB, mouseSignDict, pidType)
+    Mrez2D = Mrez3D[:, :, trgIdx]
+
+    print(np.max(Mrez2D))
 
     plt.figure()
-    plt.imshow(Mrez, cmap='jet', vmin=0, vmax=0.5)
+    plt.imshow(Mrez2D, cmap='jet', vmin=0, vmax=0.5)
     plt.colorbar()
     plt.savefig('PID_2D_' + '_'.join([pidType, trgChName, keylabel]) + '.png')
     plt.close()
 
-
-def plot_all_top_n_frac_significant(dataDB, h5fname, nTop=10, haveTriplet=True,
-                                    haveSinglet=True, trgPlotList=None, minTrials=50, trialType='iGO'):
-    pidTypes = ['unique', 'red', 'syn']
-    summaryDF = pid_all_summary_df(h5fname)
-
-    for keyLst, dfSession in summaryDF.groupby(['datatype', 'phase']):    # 'mousename'
-        keyLabel = '_'.join(keyLst)
-        mouseSignDict = _get_pid_sign_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes,
-                                           minTrials=minTrials, trialType=trialType)
-
-        # Triplet Analysis
-        if haveTriplet:
-            _plt_all_top_n_triplets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=nTop)
-
-        # Singlet Analysis
-        if haveSinglet:
-            _plt_all_top_n_singlets(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=nTop)
-
-        if trgPlotList is not None:
-            for trgChName in trgPlotList:
-                _plot_all_frac_significant_by_target(dataDB, keyLabel, mouseSignDict, 'syn', trgChName)

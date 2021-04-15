@@ -147,7 +147,7 @@ class DataFCDatabase:
         return rez
 
     #FIXME: Why is there one more label than in allen map? Is our alignment correct?
-    def get_channel_labels(self, mousename):
+    def get_channel_labels(self, mousename=None):
         return self.channelLabels[:27]
 
     def get_nchannels(self, mousename):

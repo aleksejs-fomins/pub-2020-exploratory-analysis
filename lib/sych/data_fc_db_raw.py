@@ -110,7 +110,9 @@ class DataFCDatabase:
         trialTypeIdx = typeNames.index(trialType)
         return np.where(types == trialTypeIdx)[0]
 
-    def get_channel_labels(self, mousename):
+    def get_channel_labels(self, mousename=None):
+        if mousename is None:
+            mousename = list(self.mice)[0]
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
             return [l.decode('UTF8') for l in h5file['channelLabels']]
