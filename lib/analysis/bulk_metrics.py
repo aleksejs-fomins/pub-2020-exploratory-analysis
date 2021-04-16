@@ -256,6 +256,9 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
 
         df2 = pd_query(dfDataType, {'trialType' : 'None'})
         df2 = df2[df2['cropTime'] != 'AVG']
+        if datatype == 'bn_trial':
+            df2 = df2[df2['phase'] != 'PRE']
+
         dfData2 = pd.DataFrame(columns=['mousename', 'phase', metricName])
 
         for idx, row in df2.iterrows():
