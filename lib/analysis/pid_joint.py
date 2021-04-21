@@ -140,3 +140,58 @@ def plot_triplets(h5fname, dfSummary, nTop=20, dropChannels=None):
         fig.suptitle('_'.join(key))
         plt.show()
 
+
+def plot_singlets(dataDB, h5fname, dfSummary, nTop=20, dropChannels=None):
+    pidTypes = ['unique', 'syn', 'red']
+
+    for key, dataMouse in dfSummary.groupby(['datatype', 'phase', 'trialType']):
+        # fig, ax = plt.subplots(ncols=3, figsize=(12, 4), tight_layout=True)
+        # fig.suptitle('_'.join(key))
+
+        mice = list(sorted(set(dataMouse['mousename'])))
+        dfDict = defaultdict(list)
+        for idx, row in dataMouse.sort_values('mousename', axis=0).iterrows():
+            df = pd.read_hdf(h5fname, row['key'])
+            df = preprocess_unique(df)
+            if dropChannels is not None:
+                df = preprocess_drop_channels(df, dropChannels)
+
+            for pidType in pidTypes:
+                dfDict[pidType] += [df[df['PID'] == pidType].drop(['PID', 'p', 'effSize', 'muRand'], axis=1)]
+
+        fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
+        for iPid, pidType in enumerate(pidTypes):
+            dfJoint = pd_merge_multiple(mice, dfDict[pidType], ["S1", "S2", "T"])
+            print(pidType, len(dfDict[pidType][0]), len(dfJoint))
+
+            print(dfJoint.columns)
+
+            # dataLabels = dataDB.get_channel_labels()
+            #
+            # rez = []
+            # for label in dataLabels:
+            #     rez += [np.mean(pd_query(dfJoint, {'T', label})['muTrue_'])]
+            #
+            # print(rez)
+
+            #
+            # meanColNames = list(set(dfJoint.columns) - set(dfDict.keys()))
+            # dfJoint['bits_mean'] = dfJoint[meanColNames].mean(axis=1)
+            #
+            # dfJoint = dfJoint.sort_values('bits_mean', axis=0, ascending=False)
+            # dfJointHead = dfJoint.head(nTop)
+            #
+            #
+            # labels = [str((s1,s2,t)) for s1,s2,t in zip(dfJointHead['S1'], dfJointHead['S2'], dfJointHead['T'])]
+            # rezDict = {mousename : np.array(dfJointHead['muTrue_' + mousename]) for mousename in mice}
+            #
+            #
+            #
+            # # 4) Plot stacked barplot with absolute numbers. Set ylim_max to total number of sessions
+            # ax[iPid].set_title(pidType)
+            #
+            # barplot_stacked_indexed(ax[iPid], rezDict, xTickLabels=labels, xLabel='triplet',
+            #                         yLabel='bits', title=pidType, iMax=None, rotation=90)
+
+        fig.suptitle('_'.join(key))
+        plt.show()

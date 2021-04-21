@@ -2,7 +2,6 @@
 import h5py
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import datetime
 
 # Append base directory
@@ -31,8 +30,9 @@ h5outname = 'gallerosalas_result_multiregional_pid_all_df.h5'
 mc = MetricCalculator(serial=True, verbose=False) #, nCore=4)
 
 cropTimes = {
-    "TEX" : [2.0, 4.0],
-    "DEL" : [5.0, 6.8],
+    "PRE" : [0.0, 1.0],
+    "TEX" : [2.5, 3.5],
+    "DEL" : [5.0, 6.0],
     "REW" : [7.0, 8.0]
 }
 
@@ -50,26 +50,32 @@ for mousename in ['mou_5']: #dataDB.mice:
     for datatype in ['bn_trial', 'bn_session']:
         for intervKey, interv in cropTimes.items():
             for trialType in [None, 'Hit', 'CR']:
-                dataLabel = '_'.join(['PID', mousename, datatype, intervKey, str(trialType)])
-                if type_of_path(h5outname, dataLabel) is not None:
-                    print(dataLabel, 'already calculated, skipping')
-                else:
-                    dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
-                                                    zscoreDim=None, cropTime=interv,
-                                                    trialType=trialType)
+                if not ((datatype == 'bn_trial') and (intervKey == 'PRE')):
+                    dataLabel = '_'.join(['PID', mousename, datatype, intervKey, str(trialType)])
+                    print(dataLabel)
 
-                    rezLst = []
-                    for iSrc1 in range(nChannels):
-                        for iSrc2 in range(iSrc1+1, nChannels):
-                            src1 = channelNames[iSrc1]
-                            src2 = channelNames[iSrc2]
-                            sources = [src1, src2]
-                            print(datetime.now().time(), datatype, intervKey, trialType, sources)
+                    if type_of_path(h5outname, dataLabel) is not None:
+                        print(dataLabel, 'already calculated, skipping')
+                    else:
+                        dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
+                                                        zscoreDim=None, cropTime=interv,
+                                                        trialType=trialType)
 
-                            targets = list(set(channelNames) - set(sources))
-                            rezLst += [pid.pid(dataLst, mc, channelNames, sources, targets, nPerm=2000, nBin=4)]
+                        # rezLst = []
+                        # for iSrc1 in range(nChannels):
+                        #     for iSrc2 in range(iSrc1+1, nChannels):
+                        #         src1 = channelNames[iSrc1]
+                        #         src2 = channelNames[iSrc2]
+                        #         sources = [src1, src2]
+                        #         print(datetime.now().time(), datatype, intervKey, trialType, sources)
+                        #
+                        #         targets = list(set(channelNames) - set(sources))
+                        #         rezLst += [pid.pid(dataLst, mc, channelNames, sources, targets, nPerm=2000, nBin=4)]
+                        #
+                        # rezDF = pd.concat(rezLst, sort=False).reset_index(drop=True)
 
-                    rezDF = pd.concat(rezLst, sort=False).reset_index(drop=True)
+                        rezDF = pid.pid(dataLst, mc, channelNames,
+                                        labelsSrc=None, labelsTrg=None, nPerm=2000, nBin=4)
 
-                    # Save to file
-                    rezDF.to_hdf(h5outname, dataLabel, mode='a', format='table', data_columns=True)
+                        # Save to file
+                        rezDF.to_hdf(h5outname, dataLabel, mode='a', format='table', data_columns=True)

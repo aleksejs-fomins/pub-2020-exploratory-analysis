@@ -17,6 +17,7 @@ from mesostat.visualization.mpl_barplot import barplot_stacked, barplot_stacked_
 from mesostat.visualization.mpl_font import update_fonts_axis
 from mesostat.stat.permtests import percentile_twosided, perm_test_resample
 from mesostat.stat.moments import n_largest_indices
+from mesostat.utils.iterators.matrix import iter_g_2D, iter_gn_3D
 
 
 '''
@@ -25,19 +26,8 @@ Plots for specific subsets of sources and target constituting a hypothesis
 '''
 
 
-# Return a list of all pairs of elements in a list, excluding flips.
-def _pairs_unordered(lst):
-    n = len(lst)
-    assert n >= 2
-    rez = []
-    for i in range(n):
-        for j in range(i+1, n):
-            rez += [[lst[i], lst[j]]]
-    return rez
-
-
 # Calculate 3D PID with two sources and 1 target. If more than one target is provided,
-def pid(dataLst, mc, labelsAll, labelsSrc, labelsTrg, nPerm=1000, nBin=4, nDropPCA=None):
+def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin=4, nDropPCA=None, verbose=True):
     '''
     :param dataLst:     List of data over sessions, each dataset is of shape 'rsp'
     :param mc:          MetricCalculator
@@ -49,33 +39,38 @@ def pid(dataLst, mc, labelsAll, labelsSrc, labelsTrg, nPerm=1000, nBin=4, nDropP
     :return:            Dataframe containing PID results for each combination of sources and targets
     '''
 
-    # Find indices of channel labels
-    sourceIdxs = [labelsAll.index(s) for s in labelsSrc]
-    targetIdxs = [labelsAll.index(t) for t in labelsTrg]
+    # Collect result and permutation-test, write to dataframe
+    def _update_rez_df(df, rezThis, fRand, labelS1, labelS2, labelTrg):
+        pvalSummary = percentile_twosided(rezThis, fRand, settings={"haveEffectSize": True, "haveMeans": True})
+        for iType, infType in enumerate(['U1', 'U2', 'red', 'syn']):
+            rowLst = [labelS1, labelS2, labelTrg, infType, *pvalSummary[1:, iType]]
+            df = pd_append_row(df, rowLst, skip_repeat=False)
+        return df
 
-    # Find combinations of all source pairs
-    sourceIdxPairs = _pairs_unordered(sourceIdxs)
-
+    ############################
+    # Prepare and set data
+    ############################
     # Concatenate all sessions
-    dataRSP = np.concatenate(dataLst, axis=0)   # Concatenate trials and sessions
-    dataRP  = np.mean(dataRSP, axis=1)          # Average out time
+    dataRSP = np.concatenate(dataLst, axis=0)  # Concatenate trials and sessions
+    dataRP = np.mean(dataRSP, axis=1)  # Average out time
 
     if nDropPCA is not None:
         dataRP = drop_PCA(dataRP, nDropPCA)
 
-    dataBin = bin_data(dataRP, nBin, axis=1)      # Bin data separately for each channel
+    dataBin = bin_data(dataRP, nBin, axis=1)  # Bin data separately for each channel
 
-    print(dataBin.shape)
+    if verbose:
+        print("Data shape:", dataBin.shape)
 
     settings_estimator = {'pid_estimator': 'TartuPID', 'lags_pid': [0, 0]}
-
     mc.set_data(dataBin, 'rp')
-    rez = mc.metric3D('BivariatePID', '',
-                      metricSettings={'settings_estimator': settings_estimator},
-                      sweepSettings={'src': sourceIdxPairs, 'trg': targetIdxs})
-    # rez = mc.metric3D('BivariatePID', '',
-    #                   metricSettings={'settings_estimator': settings_estimator, 'src': sourceIdxs},
-    #                   sweepSettings={'trg': targetIdxs})
+
+    ############################
+    # Prepare and set data
+    ############################
+
+    if verbose:
+        print("Permutation-Testing...")
 
     # Since all channels are binned to the same quantiles,
     # the permutation test is exactly the same for all of them, so we need any three channels as input
@@ -84,17 +79,61 @@ def pid(dataLst, mc, labelsAll, labelsSrc, labelsTrg, nPerm=1000, nBin=4, nDropP
     dataTest = dataBin[:, :3][..., None]  # Add fake 1D sample dimension
     fRand = perm_test_resample(fTest, dataTest, nPerm, iterAxis=1)
 
-    df = pd.DataFrame(columns=['S1', 'S2', 'T', 'PID', 'p', 'effSize', 'muTrue', 'muRand'])
-    for iSrcPair, (iS1, iS2) in enumerate(sourceIdxPairs):
-        for iTrg, trgName in enumerate(labelsTrg):
-            rezThis = rez[iSrcPair, iTrg]
-            pvalSummary = percentile_twosided(rezThis, fRand, settings={"haveEffectSize": True, "haveMeans": True})
-            labelS1, labelS2 = labelsAll[iS1], labelsAll[iS2]
+    if verbose:
+        print("Computing PID...")
 
-            for iType, infType in enumerate(['U1', 'U2', 'red', 'syn']):
-                rowLst = [labelS1, labelS2, trgName, infType, *pvalSummary[1:, iType]]
-                df = pd_append_row(df, rowLst, skip_repeat=False)
-    return df
+    if (labelsSrc is None) and (labelsTrg is None):
+        ###############################
+        # Loop over all possible targets excluding sources
+        ###############################
+
+        # Find indices of channel labels
+        channelIdxs = np.arange(len(labelsAll)).astype(int)
+
+        # Find combinations of all source pairs
+        channelIdxTriplets = list(iter_gn_3D(channelIdxs))
+
+        rez = mc.metric3D('BivariatePID', '',
+                          metricSettings={'settings_estimator': settings_estimator},
+                          sweepSettings={'channels': channelIdxTriplets})
+
+        df = pd.DataFrame(columns=['S1', 'S2', 'T', 'PID', 'p', 'effSize', 'muTrue', 'muRand'])
+        for iTriplet, (iS1, iS2, iTrg) in enumerate(channelIdxTriplets):
+            df = _update_rez_df(df, rez[iTriplet], fRand, labelsAll[iS1], labelsAll[iS2], labelsAll[iTrg])
+
+        return df
+
+    elif (labelsSrc is not None) and (labelsTrg is not None):
+        ###############################
+        # Loop over targets in target list
+        ###############################
+
+        # Find indices of channel labels
+        sourceIdxs = [labelsAll.index(s) for s in labelsSrc]
+        targetIdxs = [labelsAll.index(t) for t in labelsTrg]
+
+        # Find combinations of all source pairs
+        sourceIdxPairs = list(iter_g_2D(sourceIdxs))
+
+        rez = mc.metric3D('BivariatePID', '',
+                          metricSettings={'settings_estimator': settings_estimator},
+                          sweepSettings={'src': sourceIdxPairs, 'trg': targetIdxs})
+        # rez = mc.metric3D('BivariatePID', '',
+        #                   metricSettings={'settings_estimator': settings_estimator, 'src': sourceIdxs},
+        #                   sweepSettings={'trg': targetIdxs})
+
+        df = pd.DataFrame(columns=['S1', 'S2', 'T', 'PID', 'p', 'effSize', 'muTrue', 'muRand'])
+        for iSrcPair, (iS1, iS2) in enumerate(sourceIdxPairs):
+            for iTrg, labelTrg in enumerate(labelsTrg):
+                if (len(sourceIdxPairs) == 1) and (len(labelsTrg) == 1):
+                    rezThis = rez
+                else:
+                    rezThis = rez[iSrcPair, iTrg]
+
+                df = _update_rez_df(df, rezThis, fRand, labelsAll[iS1], labelsAll[iS2], labelTrg)
+        return df
+    else:
+        raise ValueError('Must provide both source and target indices or neither')
 
 
 def hypotheses_calc_pid(dataDB, mc, hDict, intervDict, h5outname, datatypes=None, nDropPCA=None, **kwargs):
@@ -148,7 +187,7 @@ def hypotheses_calc_plot_info3D(dataDB, hDict, intervDict, datatypes=None, nBin=
         for hLabel, (intervKey, sources, targets) in hDict.items():
             print(hLabel)
 
-            dataLabel = '_'.join(['PID', datatype, hLabel])
+            dataLabel = '_'.join(['PID', datatype, hLabel, intervKey])
 
             sourcePairs = _pairs_unordered(sources)
             for s1Label, s2Label in sourcePairs:
@@ -173,13 +212,13 @@ def hypotheses_calc_plot_info3D(dataDB, hDict, intervDict, datatypes=None, nBin=
 
                         dataBin = bin_data(dataRP, nBin, axis=1)  # Binarize data over channels
 
-                        h3d = np.histogramdd(dataBin[:, [targetIdx, s1Idx, s2Idx]], bins=(nBin,) * 3)[0]
+                        h3d = np.histogramdd(dataBin[:, [targetIdx, s1Idx, s2Idx]], bins=(nBin, nBin, nBin))[0]
                         h3d /= np.sum(h3d)  # Normalize
 
                         for iTrgBin in range(nBin):
                             img = ax[iMouse][iTrgBin].imshow(h3d[iTrgBin], vmin=0, vmax=10 / nBin ** 3, cmap='jet')
-                            ax[iMouse][iTrgBin].set_xlabel(s1Label)
-                            ax[iMouse][iTrgBin].set_ylabel(s2Label)
+                            ax[iMouse][iTrgBin].set_ylabel(s1Label)  # First label is rows a.k.a Y-AXIS!!!
+                            ax[iMouse][iTrgBin].set_xlabel(s2Label)
                             ax[iMouse][iTrgBin].set_title(labelTrg + '=' + str(iTrgBin))
                             imshow_add_color_bar(fig, ax[iMouse][iTrgBin], img)
 
@@ -649,14 +688,14 @@ def plot_all_frac_significant_2D_avg(dataDB, mouseSignDict, keylabel, pidTypes):
         print(np.max(Mrez2D))
 
         plt.figure()
-        plt.imshow(Mrez2D, cmap='jet', vmin=0, vmax=0.5)
+        plt.imshow(Mrez2D, cmap='jet', vmin=0, vmax=1)
         plt.colorbar()
         plt.savefig('PID_2D_' + '_'.join([pidType, 'AVG', keylabel]) + '.png')
         plt.close()
 
 
 # Plot a matrix of fraction of significant connections for a target channel
-def plot_all_frac_significant_2D_by_target(dataDB, mouseSignDict, keylabel, pidType, trgChName):
+def plot_all_frac_significant_2D_by_target(dataDB, mouseSignDict, keylabel, pidType, trgChName, vmax=0.5):
     labels = dataDB.get_channel_labels()
     trgIdx = labels.index(trgChName)
     Mrez3D = _sign_dict_to_3D_mat(dataDB, mouseSignDict, pidType)
@@ -665,7 +704,7 @@ def plot_all_frac_significant_2D_by_target(dataDB, mouseSignDict, keylabel, pidT
     print(np.max(Mrez2D))
 
     plt.figure()
-    plt.imshow(Mrez2D, cmap='jet', vmin=0, vmax=0.5)
+    plt.imshow(Mrez2D, cmap='jet', vmin=0, vmax=vmax)
     plt.colorbar()
     plt.savefig('PID_2D_' + '_'.join([pidType, trgChName, keylabel]) + '.png')
     plt.close()
