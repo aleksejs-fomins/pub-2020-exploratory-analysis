@@ -1,10 +1,13 @@
 import numpy as np
 
+from mesostat.stat.machinelearning import drop_nan_rows
+
 
 def poly_fit_transform(x, y, ord):
-    coeff = np.polyfit(x, y, ord)
+    xEff, yEff = drop_nan_rows([x, y])
+    coeff = np.polyfit(xEff, yEff, ord)   # Fit to data without nans
     p = np.poly1d(coeff)
-    return p(x)
+    return p(x)                           # Evaluate for original data
 
 
 def poly_fit_discrete_residual(y, ord):

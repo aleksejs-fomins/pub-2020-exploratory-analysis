@@ -14,10 +14,9 @@ from mesostat.stat.classification import binary_classifier
 from lib.preprocessing.polyfit import poly_fit_transform
 
 
-def plot_session(dataDB, session):
+def plot_session(dataDB, session, channelIdx=0):
     dataThis, tiThis, itiThis, fps, trialTypes = dataDB.get_data_raw(session)
 
-    channelIdx = 0
     dataThisCh = dataThis[:, channelIdx]
 
     nTimePre = 2.0

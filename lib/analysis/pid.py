@@ -26,6 +26,36 @@ Plots for specific subsets of sources and target constituting a hypothesis
 '''
 
 
+# Collect result and permutation-test, write to dataframe
+def _update_pid_rez_df(df, rezThis, fRand, labelS1, labelS2, labelTrg):
+    if fRand is None:
+        return _update_pid_rez_df_norand(df, rezThis, labelS1, labelS2, labelTrg)
+    else:
+        return _update_pid_rez_df_rand(df, rezThis, fRand, labelS1, labelS2, labelTrg)
+
+
+def _update_pid_rez_df_rand(df, rezThis, fRand, labelS1, labelS2, labelTrg):
+    if df is None:
+        df = pd.DataFrame(columns=['S1', 'S2', 'T', 'PID', 'p', 'effSize', 'muTrue', 'muRand'])
+
+    pvalSummary = percentile_twosided(rezThis, fRand, settings={"haveEffectSize": True, "haveMeans": True})
+
+    for iType, infType in enumerate(['U1', 'U2', 'red', 'syn']):
+        rowLst = [labelS1, labelS2, labelTrg, infType, *pvalSummary[1:, iType]]
+        df = pd_append_row(df, rowLst, skip_repeat=False)
+    return df
+
+
+def _update_pid_rez_df_norand(df, rezThis, labelS1, labelS2, labelTrg):
+    if df is None:
+        df = pd.DataFrame(columns=['S1', 'S2', 'T', 'PID', 'muTrue'])
+
+    for iType, infType in enumerate(['U1', 'U2', 'red', 'syn']):
+        rowLst = [labelS1, labelS2, labelTrg, infType, rezThis[iType]]
+        df = pd_append_row(df, rowLst, skip_repeat=False)
+    return df
+
+
 # Calculate 3D PID with two sources and 1 target. If more than one target is provided,
 def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin=4, nDropPCA=None, verbose=True):
     '''
@@ -38,14 +68,6 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
     :param nBin:        Number of bins to use to bin the data
     :return:            Dataframe containing PID results for each combination of sources and targets
     '''
-
-    # Collect result and permutation-test, write to dataframe
-    def _update_rez_df(df, rezThis, fRand, labelS1, labelS2, labelTrg):
-        pvalSummary = percentile_twosided(rezThis, fRand, settings={"haveEffectSize": True, "haveMeans": True})
-        for iType, infType in enumerate(['U1', 'U2', 'red', 'syn']):
-            rowLst = [labelS1, labelS2, labelTrg, infType, *pvalSummary[1:, iType]]
-            df = pd_append_row(df, rowLst, skip_repeat=False)
-        return df
 
     ############################
     # Prepare and set data
@@ -74,10 +96,13 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
 
     # Since all channels are binned to the same quantiles,
     # the permutation test is exactly the same for all of them, so we need any three channels as input
-    settings_test = {'src': [0, 1], 'trg': 2, 'settings_estimator': settings_estimator}
-    fTest = lambda x: bivariate_pid_3D(x, settings_test)
-    dataTest = dataBin[:, :3][..., None]  # Add fake 1D sample dimension
-    fRand = perm_test_resample(fTest, dataTest, nPerm, iterAxis=1)
+    if nPerm > 0:
+        settings_test = {'src': [0, 1], 'trg': 2, 'settings_estimator': settings_estimator}
+        fTest = lambda x: bivariate_pid_3D(x, settings_test)
+        dataTest = dataBin[:, :3][..., None]  # Add fake 1D sample dimension
+        fRand = perm_test_resample(fTest, dataTest, nPerm, iterAxis=1)
+    else:
+        fRand = None
 
     if verbose:
         print("Computing PID...")
@@ -97,9 +122,9 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
                           metricSettings={'settings_estimator': settings_estimator},
                           sweepSettings={'channels': channelIdxTriplets})
 
-        df = pd.DataFrame(columns=['S1', 'S2', 'T', 'PID', 'p', 'effSize', 'muTrue', 'muRand'])
+        df = None
         for iTriplet, (iS1, iS2, iTrg) in enumerate(channelIdxTriplets):
-            df = _update_rez_df(df, rez[iTriplet], fRand, labelsAll[iS1], labelsAll[iS2], labelsAll[iTrg])
+            df = _update_pid_rez_df(df, rez[iTriplet], fRand, labelsAll[iS1], labelsAll[iS2], labelsAll[iTrg])
 
         return df
 
@@ -122,7 +147,7 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
         #                   metricSettings={'settings_estimator': settings_estimator, 'src': sourceIdxs},
         #                   sweepSettings={'trg': targetIdxs})
 
-        df = pd.DataFrame(columns=['S1', 'S2', 'T', 'PID', 'p', 'effSize', 'muTrue', 'muRand'])
+        df = None
         for iSrcPair, (iS1, iS2) in enumerate(sourceIdxPairs):
             for iTrg, labelTrg in enumerate(labelsTrg):
                 if (len(sourceIdxPairs) == 1) and (len(labelsTrg) == 1):
@@ -130,7 +155,7 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
                 else:
                     rezThis = rez[iSrcPair, iTrg]
 
-                df = _update_rez_df(df, rezThis, fRand, labelsAll[iS1], labelsAll[iS2], labelTrg)
+                df = _update_pid_rez_df(df, rezThis, fRand, labelsAll[iS1], labelsAll[iS2], labelTrg)
         return df
     else:
         raise ValueError('Must provide both source and target indices or neither')
@@ -189,7 +214,7 @@ def hypotheses_calc_plot_info3D(dataDB, hDict, intervDict, datatypes=None, nBin=
 
             dataLabel = '_'.join(['PID', datatype, hLabel, intervKey])
 
-            sourcePairs = _pairs_unordered(sources)
+            sourcePairs = list(iter_g_2D(sources))
             for s1Label, s2Label in sourcePairs:
                 for labelTrg in targets:
                     nMice = len(dataDB.mice)

@@ -546,6 +546,7 @@ def drop_trials(dfRawH5, session, idxsTrial):
             h5file['trialTypes'].create_dataset(session, data=tmp)
 
 
+# FIXME: How can a trial be short if all trials are set to 8s ???
 def find_short_trials(dfRawH5):
     rezDict = {}
 
