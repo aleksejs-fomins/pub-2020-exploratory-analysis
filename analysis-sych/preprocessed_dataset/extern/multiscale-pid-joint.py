@@ -52,7 +52,7 @@ for mousename in ['mvg_4']: #dataDB.mice:
                         else:
                             dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
                                                             zscoreDim=None, cropTime=interv,
-                                                            trialType=trialType)
+                                                            trialType=trialType, performance=performance)
 
                             # rezLst = []
                             # for iSrc1 in range(nChannels):
