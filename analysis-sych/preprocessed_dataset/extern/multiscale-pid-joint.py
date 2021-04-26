@@ -21,8 +21,8 @@ import lib.analysis.pid as pid
 
 # tmp_path = root_path_data if 'root_path_data' in locals() else "./"
 params = {}
-# params['root_path_data'] = '/home/alfomi/data/sych_preprocessed'
-params['root_path_data'] = '/media/alyosha/Data/TE_data/yarodata/sych_preprocessed'
+params['root_path_data'] = '/home/alfomi/data/sych_preprocessed'
+# params['root_path_data'] = '/media/alyosha/Data/TE_data/yarodata/sych_preprocessed'
 # params['root_path_data'] = gui_fpath('h5path', './')
 
 dataDB = DataFCDatabase(params)
