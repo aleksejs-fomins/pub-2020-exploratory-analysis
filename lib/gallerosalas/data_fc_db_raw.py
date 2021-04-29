@@ -12,6 +12,8 @@ import matplotlib.pyplot as plt
 from mesostat.utils.matlab_helper import loadmat
 from mesostat.utils.signals.filter import zscore_dim_ord
 from mesostat.utils.strings import enum_nonunique
+from mesostat.visualization.mpl_colors import base_colors_rgb
+from mesostat.visualization.mpl_legend import plt_add_fake_legend
 
 # Local
 
@@ -25,6 +27,8 @@ class DataFCDatabase:
         self.dimOrdCanon = 'rsp'
         self.dataTypes = ['raw', 'bn_session', 'bn_trial']
         self.accExpert = 0.7
+        self.localPath = os.path.dirname(os.path.abspath(__file__))
+        self.dataPath = os.path.join(os.path.dirname(os.path.dirname(self.localPath)), 'data')
 
         ##################################
         # Define resampling frequency
@@ -38,6 +42,9 @@ class DataFCDatabase:
         ##################################
         print("Reading channel label file")
         self._find_read_channel_labels(param["root_path_data"])
+
+        print("Reading channel area file")
+        self._find_read_channel_area_names(self.dataPath)
 
         print("Reading allen brain map")
         self._find_read_allen_map(param["root_path_data"])
@@ -64,6 +71,10 @@ class DataFCDatabase:
         self.channelLabels = enum_nonunique(self.channelLabels)
         assert len(self.channelLabels) == len(set(self.channelLabels))
 
+    def _find_read_channel_area_names(self, path):
+        self.channelAreasDF = pd.read_csv(os.path.join(path, 'gallerosalas_area_names.csv'),
+                                          delimiter=';', skipinitialspace=True)
+
     def _find_read_allen_map(self, path):
         '''
             Find the 2D mapping file of hemispheric cortical areas according to allen brain atlas
@@ -73,7 +84,7 @@ class DataFCDatabase:
             raise ValueError("Can't find file", labelFileName)
 
         self.allenMap = loadmat(labelFileName)['L']                                # 2D map of cortical regions
-        self.allenIndices = sorted(list(set(self.allenMap.flatten())))             # Indices of regions
+        self.allenIndices = sorted(list(set(self.allenMap.flatten())))[2:]         # Indices of regions. Drop First two
         self.allenCounts = [np.sum(self.allenMap == i) for i in self.allenIndices] # Number of pixels per region
 
     def _find_read_task_structure(self, path):
@@ -232,3 +243,25 @@ class DataFCDatabase:
         for t, label in self.timestamps.items():
             ax.axvline(x=t, color=linecolor, linestyle='--')
             plt.text(t+shX, shY, label, color=textcolor, verticalalignment='bottom', transform=trans, rotation=90)
+
+    def plot_area_lists(self, ax, regDict, haveLegend=False):
+        trgShape = self.allenMap.shape + (3,)
+        colors = base_colors_rgb('tableau')
+        rez = np.zeros(trgShape)
+
+        imBinary = self.allenMap == 0
+        imColor = np.outer(imBinary.astype(float), np.array([0.5, 0.5, 0.5])).reshape(trgShape)
+        rez += imColor
+
+        for iGroup, (label, lst) in enumerate(regDict.items()):
+            for iROI in lst:
+                imBinary = self.allenMap == self.allenIndices[iROI]
+                imColor = np.outer(imBinary.astype(float), colors[iGroup]).reshape(trgShape)
+                rez += imColor
+
+        if haveLegend:
+            plt_add_fake_legend(ax, colors[:len(regDict)], list(regDict.keys()))
+
+        ax.imshow(rez)
+
+

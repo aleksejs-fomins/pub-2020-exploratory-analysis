@@ -10,14 +10,23 @@ from mesostat.stat.connectomics import offdiag_1D
 from mesostat.utils.pandas_helper import outer_product_df, pd_append_row, pd_pivot
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
+from mesostat.stat.clustering import cluster_dist_matrix, cluster_plot
+
+###############################
+# Correlation Plots
+###############################
 
 
-def corr_plot_session_composite(dataDB, mc, intervDict, estimator, datatype, nDropPCA=None,
-                                trialTypes=None, performances=None, haveMono=True, thrMono=0.4):
+def corr_plot_session_composite(dataDB, mc, intervDict, estimator, dataTypes=None, nDropPCA=None, dropChannels=None,
+                                haveBrain=False, trialTypes=None, performances=None, haveMono=True, thrMono=0.4,
+                                clusterParam=-10):
     argSweepDict = {
         'mousename' : dataDB.mice,
         'intervName' : list(intervDict.keys())
     }
+
+    if dataTypes is not None:
+        argSweepDict['datatype'] = dataTypes
     if trialTypes is not None:
         argSweepDict['trialType'] = trialTypes
     if performances is not None:
@@ -26,21 +35,32 @@ def corr_plot_session_composite(dataDB, mc, intervDict, estimator, datatype, nDr
     sweepDF = outer_product_df(argSweepDict)
 
     for idx, row in sweepDF.iterrows():
+        plotSuffix = '_'.join([str(s) for s in row.values])
+        print(plotSuffix)
+
         kwargs = dict(row)
         del kwargs['mousename']
         del kwargs['intervName']
 
         results = []
         # NOTE: zscore channels for each session to avoid session-wise effects
-        dataRSPLst = dataDB.get_neuro_data({'mousename' : row['mousename']}, datatype=datatype,
+        dataRSPLst = dataDB.get_neuro_data({'mousename' : row['mousename']},
                                             cropTime=intervDict[row['intervName']],
                                             zscoreDim='rs',
                                             **kwargs)
         dataRSP = np.concatenate(dataRSPLst, axis=0)
         dataRP = np.mean(dataRSP, axis=1)
+        channelLabels = np.array(dataDB.get_channel_labels())
 
         if nDropPCA is not None:
             dataRP = drop_PCA(dataRP, nDropPCA)
+
+        if dropChannels is not None:
+            nChannels = dataRP.shape[1]
+            channelMask = np.ones(nChannels).astype(bool)
+            channelMask[dropChannels] = 0
+            dataRP = dataRP[:, channelMask]
+            channelLabels = channelLabels[channelMask]
 
         mc.set_data(dataRP, 'rp')
         # mc.set_data(dataRSP, 'rsp')
@@ -48,12 +68,24 @@ def corr_plot_session_composite(dataDB, mc, intervDict, estimator, datatype, nDr
         metricSettings={'havePVal' : False, 'estimator' : estimator}
         rez2D = mc.metric3D('corr', '', metricSettings=metricSettings)
 
-        plotSuffix = datatype + '_' + '_'.join(list(row.values))
-        plt.figure()
-        plt.imshow(rez2D, vmin=-1, vmax=1, cmap='jet')
-        plt.colorbar()
+        # Plot correlations
+        fig, ax = plt.subplots(nrows=2, figsize=(4, 8))
+        imshow(fig, ax[0], rez2D, title='corr', haveColorBar=True, limits=[-1,1], cmap='jet')
+
+        # Plot clustering
+        clusters = cluster_dist_matrix(rez2D, clusterParam, method='affinity')
+        cluster_plot(fig, ax[1], rez2D, clusters, channelLabels)
+
+        # Save image
         plt.savefig('corr_all_' + plotSuffix + '.png')
         plt.close()
+
+        if haveBrain:
+            fig, ax = plt.subplots(figsize=(4, 4))
+            clusterDict = {c : np.where(clusters == c)[0] for c in sorted(set(clusters))}
+            dataDB.plot_area_lists(ax, clusterDict)
+            plt.savefig('corr_all_' + plotSuffix + '_brainplot.png')
+            plt.close()
 
         # Plot channels by their average correlation
         if haveMono:
@@ -65,7 +97,7 @@ def corr_plot_session_composite(dataDB, mc, intervDict, estimator, datatype, nDr
                 print('No channels with avgcorr < ', thrMono, 'for', plotSuffix)
             else:
                 vals = rez1D[idxsPlot]
-                chLabels = np.array(dataDB.get_channel_labels(row['mousename']))[idxsPlot]
+                chLabels = np.array(channelLabels)[idxsPlot]
                 idxsValsSort = np.argsort(vals)
                 vals = vals[idxsValsSort]
                 chLabels = chLabels[idxsValsSort]
@@ -77,6 +109,15 @@ def corr_plot_session_composite(dataDB, mc, intervDict, estimator, datatype, nDr
                 ax.axhline(y=0, color='pink', linestyle='--')
                 fig.savefig('corr_1D_all_' + plotSuffix + '.png')
                 plt.close()
+
+
+###############################
+# Clustering
+###############################
+
+###############################
+# PCA
+###############################
 
 
 def plot_pca_alignment_bymouse(dataDB, datatype='bn_session', trialType=None):
@@ -167,7 +208,7 @@ def plot_pca_alignment_byphase(dataDB, intervDict, datatype='bn_session', trialT
         plt.close()
 
 
-def plot_pca_consistency(dataDB, intervDict, dropFirst=None):
+def plot_pca_consistency(dataDB, intervDict, dropFirst=None, dropChannels=None):
     mice = sorted(dataDB.mice)
     nMice = len(mice)
 
@@ -190,6 +231,11 @@ def plot_pca_consistency(dataDB, intervDict, dropFirst=None):
                 dataRSP = np.concatenate(dataRSPLst, axis=0)
                 dataRP = np.mean(dataRSP, axis=1)
                 dataRP = zscore(dataRP, axis=0)
+
+                if dropChannels is not None:
+                    channelMask = np.ones(dataRP.shape[1]).astype(bool)
+                    channelMask[dropChannels] = 0
+                    dataRP = dataRP[:, channelMask]
 
                 dataLst += [dataRP]
 

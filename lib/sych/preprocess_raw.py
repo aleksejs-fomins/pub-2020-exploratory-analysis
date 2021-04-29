@@ -9,8 +9,10 @@ from mesostat.utils.system import getfiles_walk
 from mesostat.utils.hdf5_io import DataStorage
 from mesostat.utils.matlab_helper import loadmat
 from mesostat.utils.signals.resample import downsample_int
+from mesostat.utils.pandas_helper import pd_is_one_row, pd_query
 from lib.sych.data_read import read_neuro_perf
 import lib.preprocessing.polyfit as polyfit
+from mesostat.utils.signals.fit import polyfit_transform
 
 
 def h5_overwrite_group(h5file, groupName, **kwargs):
@@ -850,3 +852,72 @@ def extract_store_trial_data(dfRawH5, targetFPS=20, bgOrd=2,
                         # Store selected trial types
                         if session not in h5file['trialTypesSelected'].keys():
                             h5file['trialTypesSelected'].create_dataset(session, data=trialTypesSelected)
+
+
+#####################
+# Cleanup
+#####################
+
+def fix_adjust_drop_channel(dfRawH5, session, channel, intervLst, valLst, update=False):
+    def plotfit(data, ax):
+        fit = polyfit_transform(np.arange(len(data)), data, 15)
+        print(np.linalg.norm(data - fit))
+
+        ax.plot(data)
+        ax.plot(fit)
+
+    # Read data
+    pwd = pooled_get_path_session(dfRawH5, session)
+    with h5py.File(pwd, 'r') as h5file:
+        data = np.copy(h5file['data'][session])
+
+    dataCh = data[:, channel]
+
+    fig, ax = plt.subplots(ncols=2, figsize=(8, 4))
+    plotfit(dataCh, ax[0])
+
+    for iInt in range(len(intervLst)-1):
+        dataCh[intervLst[iInt]:intervLst[iInt+1]] += valLst[iInt]
+
+    plotfit(dataCh, ax[1])
+    plt.show()
+
+    if update:
+        data[:, channel] = dataCh
+        with h5py.File(pwd, 'a') as h5file:
+            del h5file['data'][session]
+            h5file['data'].create_dataset(session, data=data)
+
+
+def postprocess_crop_bad_trials(dfRawH5, session, idxTrialsKeep):
+    pwd = pooled_get_path_session(dfRawH5, session)
+    with h5py.File(pwd, 'a') as h5file:
+        for key in ['trialTypesSelected', 'data_raw', 'data_bn_trial', 'data_bn_session']:
+            if session in h5file[key].keys():
+                data = np.copy(h5file[key][session])
+
+                print(key, 'Cropping', len(data), 'to', len(idxTrialsKeep))
+                data = data[idxTrialsKeep]
+
+                del h5file[key][session]
+                h5file[key].create_dataset(session, data=data)
+
+
+def get_trial_idxs_by_interval(dfRawH5, session, idxMinSession, idxMaxSession, tMinTrial, tMaxTrial):
+    pwd = pooled_get_path_session(dfRawH5, session)
+    with h5py.File(pwd, 'r') as h5file:
+        FPS = h5file['data'][session].attrs['FPS']
+        trialStartIdxs = np.copy(h5file['trialStartIdxs'][session])
+
+    trialLeftIdxs = trialStartIdxs + tMinTrial * FPS
+    trialRightIdxs = trialStartIdxs + tMaxTrial * FPS
+
+    rez = []
+    for iTrial in range(len(trialStartIdxs)):
+        fitLeft = trialLeftIdxs[iTrial] >= idxMinSession
+        fitRight = trialRightIdxs[iTrial] <= idxMaxSession
+        if not (fitLeft and fitRight):
+            rez += [iTrial]
+
+    print('Selected', len(rez), 'of', len(trialStartIdxs), 'trials')
+    return rez

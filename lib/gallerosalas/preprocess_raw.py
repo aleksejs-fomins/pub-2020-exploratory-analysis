@@ -535,7 +535,6 @@ class preprocess:
 #  Cleanup
 ############################
 
-
     def drop_preprocess_session(self, pwd, mouseName, session):
         pwd = os.path.join(pwd, mouseName + '.h5')
 
@@ -549,10 +548,6 @@ class preprocess:
                 if session in f[metaclass]:
                     del f[metaclass][session]
                     print('deleted', session, 'from', metaclass)
-
-
-
-
 
     def crop_mismatch_trials(self, pwd):
         for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):

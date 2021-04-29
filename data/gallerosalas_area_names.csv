@@ -1,0 +1,28 @@
+Num; LOrig;   LTrue;   LCanon;      Name;                    Area
+1;   A1;      A1;      AUDp;        Auditroy primary;        Auditory
+2;   S2;      S2;      SSs;         Secondary sensory;       Somatomotor
+3;   TEA;     TEA;     TEa;         Temporal association;    Lateral
+4;   AD;      AD;      AUDd;        Auditory dorsal;         Auditory
+5;   AP;      AP;      AUDpo;       Auditory posterior;      Auditory
+6;   PR;      PR;      VISpor;      Post rhinal;             Visual
+7;   NO;      NO;      SSp-n;       Primary nose;            Somatomotor
+8;   BC;      BC;      SSp-bfd;     Barrel cortex;           Somatomotor
+9;   MO;      MO;      SSp-m;       Primary mouth;           Somatomotor
+10;  LI;      LI;      VISli;       Lateral intermediate;    Visual
+11;  AL;      AL;      VISal;       Anterior lateral;        Visual
+12;  PL;      LM;      VISl;        Lateral medial;          Visual
+13;  RL;      PL;      VISpl;       Posterior lateral;       Visual
+14;  V1;      RL;      VISrl;       Rostro lateral;          Visual
+15;  M1;      V1;      VISp;        Primary visual;          Visual
+16;  UN;      M1;      MOp;         Primary motor;           Somatomotor
+17;  FL;      UN;      SSp-un;      Primary unclassified;    Somatomotor
+18;  M2;      FL;      SSp-ul;      Primary forelimb;        Somatomotor
+19;  A;       M2;      MOs;         Secondary motor;         Somatomotor
+20;  TR;      A;       VISa;        Anterior;                Medial
+21;  AM;      TR;      SSp-tr;      Primary trunk;           Somatomotor
+22;  PM;      HL;      SSp-ll;      Primary hindlimb;        Somatomotor
+23;  RA;      AM;      VISam;       Anterior medial;         Medial
+24;  RD;      PM;      VISpm;       Posterior medial;        Medial
+25;  BC_1;    RA;      RSPagl;      Retrosplenial agranular; Medial
+26;  BC_2;    RD;      RSPd;        Retrosplenial dorsal;    Medial
+27;  BC_3;    ACA;     ACA;         Anterior cingulate area; Somatomotor

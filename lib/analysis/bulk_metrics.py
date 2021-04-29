@@ -27,9 +27,9 @@ def _dict_append_auto(d, key, x, xAutoFunc):
         d[key] = x
 
 
-def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExisting=False,
-                      metricSettings=None, sweepSettings=None, minTrials=1, dataTypes='auto',
-                      trialTypeNames=None, perfNames=None, cropTime=None, timeAvg=False, verbose=True):
+def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExisting=False, verbose=True,
+                      metricSettings=None, sweepSettings=None, minTrials=1, dropChannels=None,
+                      dataTypes='auto', trialTypeNames=None, perfNames=None, cropTime=None, timeAvg=False):
 
     argSweepDict = {'mousename' : dataDB.mice}
     _dict_append_auto(argSweepDict, 'datatype', dataTypes, dataDB.get_data_types)
@@ -52,6 +52,7 @@ def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExi
         metric_by_selector(dataDB, mc, ds, {'mousename': row['mousename']}, metricName, dimOrdTrg,
                            dataName=nameSuffix,
                            skipExisting=skipExisting,
+                           dropChannels=dropChannels,
                            cropTime=cropTime,
                            minTrials=minTrials,
                            timeAvg=timeAvg,
@@ -64,7 +65,7 @@ def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExi
 
 
 def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix, minTrials=1, skipExisting=False,
-                                 metricSettings=None, sweepSettings=None, dataTypes='auto',
+                                 metricSettings=None, sweepSettings=None, dropChannels=None, dataTypes='auto',
                                  trialTypeNames=None, perfNames=None, cropTime=None, verbose=True):
 
 
@@ -88,6 +89,7 @@ def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix, minTria
 
         metric_by_session(dataDB, mc, ds, row['mousename'], metricName, '',
                           skipExisting=skipExisting,
+                          dropChannels=dropChannels,
                           dataName=nameSuffix,
                           minTrials=minTrials,
                           zscoreDim=zscoreDim,
@@ -118,7 +120,7 @@ def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, ylim=
         if verbose:
             print(list(colVals))
 
-        for idxMouse, rowMouse in dfSub.iterrows():
+        for idxMouse, rowMouse in dfSub.sort_values(by='mousename').iterrows():
             print(list(rowMouse.values))
 
             dataThis = ds.get_data(rowMouse['dset'])
@@ -160,6 +162,9 @@ def scatter_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, yl
     dfAnalysis = pd_move_cols_front(dfAnalysis, ['metric', 'name', 'mousename'])  # Move leading columns forwards for more informative printing/saving
     dfAnalysis = dfAnalysis.drop(['target_dim', 'datetime', 'shape'], axis=1)
 
+    if 'performance' in dfAnalysis.columns:
+        dfAnalysis = dfAnalysis[dfAnalysis['performance'] == 'None'].drop(['performance'], axis=1)
+
     # Loop over all other columns except mousename
     colsExcl = list(set(dfAnalysis.columns) - {'mousename', 'dset'})
 
@@ -171,7 +176,7 @@ def scatter_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, yl
 
         xLst = []
         yLst = []
-        for idxMouse, rowMouse in dfSub.iterrows():
+        for idxMouse, rowMouse in dfSub.sort_values(by='mousename').iterrows():
             print(list(rowMouse.values))
 
             dataThis = ds.get_data(rowMouse['dset'])
@@ -220,14 +225,19 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
 
     # 1. Extract all results for this test
     dfAll = ds.list_dsets_pd().fillna('None')
-    # if dropCols is not None:
-    #     dfAll = dfAll.drop(dropCols, axis=1)
 
     dfAnalysis = pd_query(dfAll, {'metric' : metricName, "name" : nameSuffix})
     dfAnalysis = pd_move_cols_front(dfAnalysis, ['metric', 'name', 'mousename'])  # Move leading columns forwards for more informative printing/saving
     dfAnalysis = dfAnalysis.drop(['target_dim', 'datetime', 'shape'], axis=1)
 
-    for datatype, dfDataType in dfAnalysis.groupby(['datatype']):
+    if 'performance' in dfAnalysis.columns:
+        sweepLst = ['datatype', 'performance']
+    else:
+        sweepLst = ['datatype']
+
+    for key, dfDataType in dfAnalysis.groupby(sweepLst):
+        plotSuffix = '_'.join(key)
+
         #################################
         # Plot 1 ::: Mouse * TrialType
         #################################
@@ -247,7 +257,7 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
         fig, ax = plt.subplots()
         sns_barplot(ax, dfData1, "mousename", metricName, 'trialType', annotHue=True)
         # sns.barplot(ax=ax, x="mousename", y=metricName, hue='trialType', data=dfData1)
-        fig.savefig(metricName + '_barplot_trialtype_' + datatype + '.png')
+        fig.savefig(metricName + '_barplot_trialtype_' + plotSuffix + '.png')
         plt.close()
 
         #################################
@@ -255,9 +265,12 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
         #################################
 
         df2 = pd_query(dfDataType, {'trialType' : 'None'})
+
+        display(df2.head())
+
         df2 = df2[df2['cropTime'] != 'AVG']
-        if datatype == 'bn_trial':
-            df2 = df2[df2['phase'] != 'PRE']
+        if key[0] == 'bn_trial':
+            df2 = df2[df2['cropTime'] != 'PRE']
 
         dfData2 = pd.DataFrame(columns=['mousename', 'phase', metricName])
 
@@ -269,9 +282,9 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
         dfData2 = dfData2.sort_values('mousename')
 
         fig, ax = plt.subplots()
-        sns_barplot(ax, dfData2, "mousename", metricName, 'phase', annotHue=False)
+        sns_barplot(ax, dfData2.sort_values(by=['phase', 'mousename']), "mousename", metricName, 'phase', annotHue=False)
         # sns.barplot(ax=ax, x="mousename", y=metricName, hue='phase', data=dfData2)
-        fig.savefig(metricName + '_barplot_phase_' + datatype + '.png')
+        fig.savefig(metricName + '_barplot_phase_' + plotSuffix + '.png')
         plt.close()
 
 

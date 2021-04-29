@@ -40,7 +40,7 @@ def compute_mean_interval(dataDB, ds, trialTypesTrg, intervDict, skipExisting=Fa
                             ds.save_data(dataName, dataRP, attrsDict)
 
 
-def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, performance=None):
+def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, performance=None, dropChannels=None):
     rows = ds.list_dsets_pd()
     rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
 
@@ -64,6 +64,14 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
                         print(session, datatype, intervName, 'too few trials', nTrials1, nTrials2, ';; skipping')
                     else:
                         nChannels = dataThis[0].shape[1]
+
+                        if dropChannels is not None:
+                            channelMask = np.ones(nChannels).astype(bool)
+                            channelMask[dropChannels] = 0
+                            dataThis[0] = dataThis[0][:, channelMask]
+                            dataThis[1] = dataThis[1][:, channelMask]
+                            nChannels = nChannels - len(dropChannels)
+
                         pvals = [mannwhitneyu(dataThis[0][:, iCh], dataThis[1][:, iCh], alternative='two-sided')[1]
                                  for iCh in range(nChannels)]
                         # pSig += [(np.array(pvals) < 0.01).astype(int)]
@@ -102,7 +110,7 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
     plt.close()
 
 
-def plot_consistency_significant_activity_byphase(dataDB, ds, minTrials=10, performance=None):
+def plot_consistency_significant_activity_byphase(dataDB, ds, minTrials=10, performance=None, dropChannels=None):
     rows = ds.list_dsets_pd()
     rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
 
@@ -126,6 +134,13 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, minTrials=10, perf
                         print(session, datatype, trialType, 'too few trials', nTrials1, nTrials2, ';; skipping')
                     else:
                         nChannels = dataThis[0].shape[1]
+                        if dropChannels is not None:
+                            channelMask = np.ones(nChannels).astype(bool)
+                            channelMask[dropChannels] = 0
+                            dataThis[0] = dataThis[0][:, channelMask]
+                            dataThis[1] = dataThis[1][:, channelMask]
+                            nChannels = nChannels - len(dropChannels)
+
                         pvals = [wilcoxon(dataThis[0][:, iCh], dataThis[1][:, iCh], alternative='two-sided')[1]
                                  for iCh in range(nChannels)]
                         # pSig += [(np.array(pvals) < 0.01).astype(int)]
