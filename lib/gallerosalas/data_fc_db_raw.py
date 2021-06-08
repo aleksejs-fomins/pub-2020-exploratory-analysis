@@ -131,11 +131,14 @@ class DataFCDatabase:
     def get_data_types(self):
         return self.dataTypes
 
-    def get_trial_types(self, session, mousename=None):
+    def get_metadata(self, session, mousename=None):
         if mousename is None:
             mousename = self.find_mouse_by_session(session)
 
-        df = pd.read_hdf(self.datapaths[mousename], '/metadata/'+session)
+        return pd.read_hdf(self.datapaths[mousename], '/metadata/'+session)
+
+    def get_trial_types(self, session, mousename=None):
+        df = self.get_metadata(session, mousename=mousename)
         return np.array(df['trialType'])
 
     def get_trial_type_names(self):
