@@ -9,7 +9,7 @@ import pymatreader
 import skimage.transform as skt
 
 # from mesostat.utils.arrays import numpy_merge_dimensions
-from mesostat.utils.pandas_helper import pd_append_row
+from mesostat.utils.pandas_helper import pd_append_row, pd_query, pd_is_one_row
 # from mesostat.utils.matlab_helper import loadmat
 from mesostat.stat.performance import accuracy, d_prime
 
@@ -36,7 +36,7 @@ class preprocess:
 
         # Find parse TGT files
         self.dataPaths = pd.DataFrame(
-            columns=['mouse', 'day', 'session', 'sessionPath', 'trialIndPath', 'trialStructPath'])
+            columns=['mouse', 'day', 'session', 'sessionPath', 'trialIndPath', 'trialStructPath', 'pathActivePassive'])
         self.pathT1 = defaultdict(dict)
         self.find_parse_tdt(pathDict['TGT'])
 
@@ -54,6 +54,9 @@ class preprocess:
     def _sessions_to_letters(self, name):
         sessionIdx = int(name[len('session'):]) - 1
         return chr(97 + sessionIdx)
+
+    def get_mice(self):
+        return sorted(list(set(self.dataPaths['mouse'])))
 
     # Find necessary file paths in the TDT folder
     def find_parse_tdt(self, pathTDT):
@@ -86,13 +89,16 @@ class preprocess:
                     else:
                         pathTrialStruct = os.path.join(pathMat, dayName + sessionSuffix + '.mat')
 
+                    pathActivePassive = os.path.join(pathMat, 'trials_with_and_wo_initial_moves_OCIA_from_movie.mat')
+
                     prepcommon._testdir(pathSession)
                     prepcommon._testdir(pathMat)
                     prepcommon._testfile(pathTrialInd)
                     prepcommon._testfile(pathTrialStruct)
+                    prepcommon._testfile(pathActivePassive, critical=False)
 
                     self.dataPaths = pd_append_row(self.dataPaths, [
-                        mouseName, dayName, sessionSuffix, pathSession, pathTrialInd, pathTrialStruct
+                        mouseName, dayName, sessionSuffix, pathSession, pathTrialInd, pathTrialStruct, pathActivePassive
                     ])
 
     # Find necessary file paths in overlay folder
@@ -182,7 +188,6 @@ class preprocess:
 #  Metadata Pooling
 ############################
 
-
     # Different mice have different Go/NoGo testures
     def tex_go_nogo_bymouse(self, mouseName):
         # return 'P100', 'P1200'
@@ -190,6 +195,12 @@ class preprocess:
             return 'P100', 'P1200'
         else:
             return 'P1200', 'P100'
+
+    def trial_map_go_nogo_bymouse(self, mouseName):
+        if (mouseName == 'mou_5') or (mouseName == 'mou_7'):
+            return {'100' : 'Hit', '1200' : 'CR'}
+        else:
+            return {'1200' : 'Hit', '100' : 'CR'}
 
     # Convert stimulus and decision into trial type
     def parse_trial_type(self, stimulus, decision, mouseName):
@@ -282,6 +293,43 @@ class preprocess:
 
         print(list(dfJoin['delay']))
 
+    def get_append_active_passive(self, pathPreferences):
+        '''
+        1. Loop over metadata, print, check 1 row per trial
+        2. Find activePassive in paths for this session, test exists
+        3. If exists, augment
+        4. If not exists, set all to none manually
+        '''
+        for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
+            fpath = os.path.join(pathPreferences, mouseName + '.h5')
+            with h5py.File(fpath) as f:
+                sessionsMeta = list(f['metadata'].keys())
+
+            # Construct map from texture name to Hit/CR
+            mapCanon = self.trial_map_go_nogo_bymouse(mouseName)
+
+            for idx, row in dfMouse.iterrows():
+                session = row['day'] + '_' + row['session']
+                print(mouseName, session)
+
+                if session not in sessionsMeta:
+                    print('--Warning, skipping session with no metadata')
+                    continue
+
+                # Get metadata
+                df = pd.read_hdf(fpath, '/metadata/' + session)
+
+                # Get active/passive
+                if os.path.isfile(row['pathActivePassive']):
+                    df = prepcommon.parse_active_passive(df, row['pathActivePassive'], mapCanon)
+                else:
+                    print('--Warning, no active/passive, filling with None')
+                    df['Activity'] = None
+
+                df.to_hdf(fpath, '/metadata/' + session)
+
+                # print(df)
+
     # For a given session, compute time of each timestep of each trial relative to start of session
     # Return as 2D array (nTrial, nTime)
     def get_pooled_data_rel_times(self, pwd, mouseName, session, FPS=20.0):
@@ -326,6 +374,10 @@ class preprocess:
             for idx, row in dfMouse.iterrows():
                 session = row['day'] + '_' + row['session']
                 with h5py.File(h5fname, 'a') as h5f:
+                    if session not in h5f['metadata'].keys():
+                        print(mouseName, session, 'has no metadata, skipping')
+                        continue
+
                     if session in h5f['bn_trial'].keys():
                         if skipExist:
                             del h5f['bn_trial'][session]
@@ -360,6 +412,10 @@ class preprocess:
             for idx, row in dfMouse.iterrows():
                 session = row['day'] + '_' + row['session']
                 with h5py.File(h5fname, 'a') as h5f:
+                    if session not in h5f['metadata'].keys():
+                        print(mouseName, session, 'has no metadata, skipping')
+                        continue
+
                     if session in h5f['bn_session'].keys():
                         if skipExist:
                             del h5f['bn_session'][session]
@@ -410,7 +466,7 @@ class preprocess:
                 session = row['day'] + '_' + row['session']
 
                 with h5py.File(h5fname, 'r') as h5f:
-                    if session in h5f['data']:
+                    if session in h5f['metadata']:
                         # if mouseName == 'mou_9':
                         #     print(h5f['bn_session'].keys())
                         #     return

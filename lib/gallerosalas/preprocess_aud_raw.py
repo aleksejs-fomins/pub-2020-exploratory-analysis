@@ -37,6 +37,9 @@ class preprocess:
         self.pathT2 = {}
         self.find_parse_overlay(pathDict['Overlay'])
 
+    def get_mice(self):
+        return sorted(list(set(self.dataPaths['mouse'])))
+
     # Find necessary file paths in the TDT folder
     def find_parse_data_paths(self, pathTDT):
         for mouseName, dfMouse in self.dfSession.groupby(['mousename']):
@@ -90,6 +93,10 @@ class preprocess:
 
             # self.pathRef[mouseName] = pathRef
             self.pathT2[mouseName] = pathT2
+
+    ############################
+    #  Videos
+    ############################
 
     def parse_video_paths(self, path, day):
         # filesTmp = os.listdir(path)
@@ -156,6 +163,9 @@ class preprocess:
                 with h5py.File(mouseName + '.h5', 'a') as h5file:
                     h5file['data'].create_dataset(sessionName, data=np.array(dataRSP))
 
+    ############################
+    #  Metadata
+    ############################
 
     def parse_trial_structure(self, pwd):
         trialStruct = pymatreader.read_mat(pwd)
@@ -163,37 +173,10 @@ class preprocess:
         return pd.DataFrame({'trialType' : trialTypes}).replace({
             1: "Hit", 2: "CR", 3: "FA", 4: "Miss", 5: "Early"})
 
-
     def read_trial_structure_as_pd(self, trialStructPath, activePassivePath):
         dfTrialStruct = self.parse_trial_structure(trialStructPath)
-        dfTrialStruct['Activity'] = None
-
-        mapHit = lambda tt: 'Hit' if tt == 'hit' else tt
-
-        activePassiveStruct = pymatreader.read_mat(activePassivePath)
-        for tt in ['hit', 'CR']:
-            rezDict = {}
-
-            for activity in ['delay_move', 'no_prior_move', 'noisy', 'prior_move', 'quiet_sens', 'quiet_then_move']:
-                keyAct = 'tr_' + tt + '_' + activity
-                if keyAct in activePassiveStruct:
-                    keys = activePassiveStruct[keyAct]
-                    if isinstance(keys, int):
-                        keys = [keys]
-
-                    vals = [activity] * len(keys)
-                    rezDict = {**rezDict, **dict(zip(keys, vals))}
-
-            print('--', tt, (dfTrialStruct['trialType'] == mapHit(tt)).sum(), len(rezDict))
-
-            iTT = 0
-            for idx, row in dfTrialStruct.iterrows():
-                if row['trialType'] == mapHit(tt):
-                    if iTT + 1 in rezDict:
-                        dfTrialStruct['Activity'][idx] = rezDict[iTT + 1]
-                    iTT += 1
-
-        return dfTrialStruct
+        mapCanon = {'hit': 'Hit', 'CR': 'CR'}
+        return prepcommon.parse_active_passive(dfTrialStruct, activePassivePath, mapCanon)
 
     # Read all structure files, process, save to H5. Also compute performance and save to H5
     def process_metadata_files(self, pwd):
@@ -239,6 +222,41 @@ class preprocess:
                         h5f['dprime'].create_dataset(sessionName, data=dp)
 
 
+    # For a given session, compute time of each timestep of each trial relative to start of session
+    # Return as 2D array (nTrial, nTime)
+    def get_pooled_data_rel_times(self, pwd, mouseName, session, FPS=20.0, onlySelected=False):
+        fpath = os.path.join(pwd, mouseName + '.h5')
+        with h5py.File(fpath) as f:
+            dataRSP = np.copy(f['data'][session])
+
+        '''
+            1. Load session metadata
+            2. Convert all times to timestamps
+            3. From all timestamps, subtract first, convert to seconds
+            4. Extract data, get nTimes from shape
+            5. Set increment, return
+        '''
+
+        fpath = os.path.join(pwd, mouseName + '.h5')
+
+        df = pd.read_hdf(fpath, '/metadata/' + session)
+
+        timeStamps = df['timeStamps']
+        timeDeltas = timeStamps - timeStamps[0]
+
+        timesSh = np.arange(dataRSP.shape[1]) / FPS
+        timesRS = np.array([t.total_seconds() + timesSh for t in timeDeltas])
+
+        if onlySelected:
+            timesRS = timesRS[df['selected']]
+            dataRSP = dataRSP[df['selected']]
+        elif timesRS.shape[0] < dataRSP.shape[0]:
+            print('Warning: trial number mismatch', timesRS.shape[0], dataRSP.shape[0])
+            dataRSP = dataRSP[:timesRS.shape[0]]
+
+
+        return timesRS, dataRSP
+
     def extract_timestamps_video(self, pwd):
         for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
             h5name = os.path.join(pwd, mouseName + '.h5')
@@ -268,3 +286,109 @@ class preprocess:
 
                 metadata['timeStamps'] = timeStamps
                 metadata.to_hdf(h5name, '/metadata/' + sessionName)
+
+
+    ############################
+    #  Baseline Subtraction
+    ############################
+
+    # For each trial, compute DFF, store back to h5
+    def baseline_subtraction_dff(self, pwd, iMin, iMax, skipExist=False):
+        for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
+            h5fname = os.path.join(pwd, mouseName + '.h5')
+
+            prepcommon._h5_append_group(h5fname, 'bn_trial')
+
+            for idx, row in dfMouse.iterrows():
+                session = row['day'] + '_' + row['session']
+                with h5py.File(h5fname, 'a') as h5f:
+                    if session in h5f['bn_trial'].keys():
+                        if skipExist:
+                            del h5f['bn_trial'][session]
+                        else:
+                            print(mouseName, session, 'already exists, skipping')
+                            continue
+
+                print(mouseName, session)
+                times, dataRSP = self.get_pooled_data_rel_times(pwd, mouseName, session, onlySelected=True)
+                if len(times) != len(dataRSP):
+                    print('-- trial mismatch', times.shape, dataRSP.shape)
+                    # continue
+
+                dataBN = np.zeros(dataRSP.shape)
+
+                for iTr in range(dataRSP.shape[0]):
+                    mu = np.nanmean(dataRSP[iTr, iMin:iMax], axis=0)
+                    dataBN[iTr] = dataRSP[iTr] / mu - 1
+
+                with h5py.File(h5fname, 'a') as h5f:
+                    h5f['bn_trial'].create_dataset(session, data=dataBN)
+
+    # For each session: fit poly, do poly-DFF, store back to h5
+    def baseline_subtraction_poly(self, pwd, ord=2, alpha=0.01, skipExist=False):
+        for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
+            h5fname = os.path.join(pwd, mouseName + '.h5')
+
+            prepcommon._h5_append_group(h5fname, 'bn_session')
+            prepcommon._h5_append_group(h5fname, 'bn_fit')
+            prepcommon._h5_append_group(h5fname, 'raw')
+
+            for idx, row in dfMouse.iterrows():
+                session = row['day'] + '_' + row['session']
+                with h5py.File(h5fname, 'a') as h5f:
+                    if session in h5f['bn_session'].keys():
+                        if skipExist:
+                            del h5f['bn_session'][session]
+                            del h5f['bn_fit'][session]
+                            del h5f['raw'][session]
+                        else:
+                            print(mouseName, session, 'already exists, skipping')
+                            continue
+
+                print(mouseName, session)
+                times, dataRSP = self.get_pooled_data_rel_times(pwd, mouseName, session, onlySelected=True)
+                if len(times) != len(dataRSP):
+                    print('-- trial mismatch', times.shape, dataRSP.shape)
+                    # continue
+
+                dataRSPfit = prepcommon.polyfit_data_3D(times, dataRSP, ord, alpha)
+
+                dataRaw = dataRSP - dataRSPfit
+                dataBN = dataRaw / dataRSPfit
+
+                with h5py.File(h5fname, 'a') as h5f:
+                    h5f['raw'].create_dataset(session, data=dataRaw)
+                    h5f['bn_fit'].create_dataset(session, data=dataRSPfit)
+                    h5f['bn_session'].create_dataset(session, data=dataBN)
+
+    ############################
+    #  Cleanup
+    ############################
+
+    def metadata_add_selected_column(self, pwd):
+        for mouseName in self.get_mice():
+            h5name = os.path.join(pwd, mouseName + '.h5')
+
+            with h5py.File(h5name, 'r') as h5f:
+                sessions = list(h5f['metadata'].keys())
+
+            for session in sessions:
+                dfTrialStruct = pd.read_hdf(h5name, '/metadata/' + session)
+                dfTrialStruct['selected'] = dfTrialStruct['trialType'].isin(['Hit', 'CR', 'FA', 'Miss', 'Early'])
+                dfTrialStruct.to_hdf(h5name, '/metadata/' + session)
+
+    def get_trial_idxs_by_timestep_interval(self, pwd, mouseName, session, trStart, trEnd, FPS=20.0):
+        timesRS, dataRSP = self.get_pooled_data_rel_times(pwd, mouseName, session, FPS=FPS)
+        timestepsRS = timesRS * FPS
+
+        lIn = (timestepsRS[:, 0] >= trStart) & (timestepsRS[:, 0] < trEnd)
+        rIn = (timestepsRS[:, -1] >= trStart) & (timestepsRS[:, -1] < trEnd)
+        return np.where(lIn | rIn)[0]
+
+    def mark_trials_bad_by_index(self, pwd, mouseName, session, idxs):
+        h5name = os.path.join(pwd, mouseName + '.h5')
+
+        dfTrialStruct = pd.read_hdf(h5name, '/metadata/' + session)
+        dfTrialStruct.loc[idxs, 'selected'] = False
+        dfTrialStruct.to_hdf(h5name, '/metadata/' + session)
+

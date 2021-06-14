@@ -207,6 +207,34 @@ def count_trial_types(df):
     return dict(zip(targetTypes, rezLst))
 
 
+def parse_active_passive(dfTrialStruct, activePassivePath, mapCanon):
+    dfTrialStruct['Activity'] = None
+
+    activePassiveStruct = pymatreader.read_mat(activePassivePath)
+    for tt, ttCanon in mapCanon.items():
+        rezDict = {}
+
+        for activity in ['delay_move', 'no_prior_move', 'noisy', 'prior_move', 'quiet_sens', 'quiet_then_move']:
+            keyAct = 'tr_' + tt + '_' + activity
+            if keyAct in activePassiveStruct:
+                keys = activePassiveStruct[keyAct]
+                if isinstance(keys, int):
+                    keys = [keys]
+
+                vals = [activity] * len(keys)
+                rezDict = {**rezDict, **dict(zip(keys, vals))}
+
+        print('--', tt, (dfTrialStruct['trialType'] == ttCanon).sum(), len(rezDict))
+
+        iTT = 0
+        for idx, row in dfTrialStruct.iterrows():
+            if row['trialType'] == ttCanon:
+                if iTT + 1 in rezDict:
+                    dfTrialStruct.loc[idx, 'Activity'] = rezDict[iTT + 1]
+                iTT += 1
+
+    return dfTrialStruct
+
 ############################
 #  Baseline Subtraction
 ############################
@@ -242,4 +270,5 @@ def example_poly_fit(times, dataRSP, iCh=0, ord=2, alpha=0.01):
     for iTr in range(nTrial):
         plt.plot(times[iTr], dataRSP[iTr, :, iCh], color='orange')
     plt.plot(timesFlat, y)
+    plt.ylabel(str(iCh))
     plt.show()
