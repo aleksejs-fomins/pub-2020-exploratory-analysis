@@ -7,7 +7,7 @@ from sklearn.decomposition import PCA
 from mesostat.utils.signals.filter import zscore, drop_PCA
 import mesostat.stat.consistency.pca as pca
 from mesostat.stat.connectomics import offdiag_1D
-from mesostat.utils.pandas_helper import outer_product_df, pd_append_row, pd_pivot
+from mesostat.utils.pandas_helper import outer_product_df, pd_append_row, pd_pivot, drop_rows_byquery
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
 from mesostat.stat.clustering import cluster_dist_matrix, cluster_plot
@@ -17,12 +17,12 @@ from mesostat.stat.clustering import cluster_dist_matrix, cluster_plot
 ###############################
 
 
-def corr_plot_session_composite(dataDB, mc, intervDict, estimator, dataTypes=None, nDropPCA=None, dropChannels=None,
-                                haveBrain=False, trialTypes=None, performances=None, haveMono=True, thrMono=0.4,
-                                clusterParam=-10):
+def corr_plot_session_composite(dataDB, mc, estimator, intervNames=None, dataTypes=None, nDropPCA=None,
+                                dropChannels=None, haveBrain=False, trialTypes=None, performances=None, haveMono=True,
+                                exclQueryLst=None, thrMono=0.4, clusterParam=-10):
     argSweepDict = {
         'mousename' : dataDB.mice,
-        'intervName' : list(intervDict.keys())
+        'intervName' : intervNames if intervNames is not None else dataDB.get_interval_names()
     }
 
     if dataTypes is not None:
@@ -33,6 +33,8 @@ def corr_plot_session_composite(dataDB, mc, intervDict, estimator, dataTypes=Non
         argSweepDict['performance'] = performances
 
     sweepDF = outer_product_df(argSweepDict)
+    if drop_rows_byquery is not None:
+        sweepDF = drop_rows_byquery(sweepDF, exclQueryLst)
 
     for idx, row in sweepDF.iterrows():
         plotSuffix = '_'.join([str(s) for s in row.values])
@@ -45,7 +47,7 @@ def corr_plot_session_composite(dataDB, mc, intervDict, estimator, dataTypes=Non
         results = []
         # NOTE: zscore channels for each session to avoid session-wise effects
         dataRSPLst = dataDB.get_neuro_data({'mousename' : row['mousename']},
-                                            cropTime=intervDict[row['intervName']],
+                                            intervName=row['intervName'],
                                             zscoreDim='rs',
                                             **kwargs)
         dataRSP = np.concatenate(dataRSPLst, axis=0)
@@ -120,7 +122,7 @@ def corr_plot_session_composite(dataDB, mc, intervDict, estimator, dataTypes=Non
 ###############################
 
 
-def plot_pca_alignment_bymouse(dataDB, datatype='bn_session', trialType=None):
+def plot_pca_alignment_bymouse(dataDB, datatype='bn_session', trialType=None, intervName=None):
     nMouse = len(dataDB.mice)
     mice = sorted(dataDB.mice)
 
@@ -130,7 +132,8 @@ def plot_pca_alignment_bymouse(dataDB, datatype='bn_session', trialType=None):
     compLst = []
     varLst = []
     for mousename in sorted(dataDB.mice):
-        dataRSP = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype, trialType=trialType)
+        dataRSP = dataDB.get_neuro_data({'mousename': mousename},
+                                        intervName=intervName, datatype=datatype, trialType=trialType)
         dataRSP = np.concatenate(dataRSP, axis=0)
         dataRP = np.concatenate(dataRSP, axis=0)  # Use timesteps as samples
 
@@ -170,16 +173,20 @@ def plot_pca_alignment_bymouse(dataDB, datatype='bn_session', trialType=None):
     plt.close()
 
 
-def plot_pca_alignment_byphase(dataDB, intervDict, datatype='bn_session', trialType=None):
+# FIXME: enable exclude queries
+def plot_pca_alignment_byphase(dataDB, intervNames=None, datatype='bn_session', trialType=None):
     for mousename in sorted(dataDB.mice):
         fig, ax = plt.subplots(ncols=2, figsize=(8, 4))
 
         compLst = []
         varLst = []
 
-        for intervName, interv in intervDict.items():
+        if intervNames is None:
+            intervNames = dataDB.get_interval_names()
+
+        for intervName in intervNames:
             dataRSP = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
-                                            cropTime=interv, trialType=trialType)
+                                            intervName=intervName, trialType=trialType)
             dataRSP = np.concatenate(dataRSP, axis=0)
             dataRP = np.mean(dataRSP, axis=1)
 
@@ -208,15 +215,19 @@ def plot_pca_alignment_byphase(dataDB, intervDict, datatype='bn_session', trialT
         plt.close()
 
 
-def plot_pca_consistency(dataDB, intervDict, dropFirst=None, dropChannels=None):
+# FIXME: enable exclude queries
+def plot_pca_consistency(dataDB, intervNames=None, dropFirst=None, dropChannels=None):
     mice = sorted(dataDB.mice)
     nMice = len(mice)
 
     dfColumns = ['datatype', 'phase', 'consistency']
     dfConsistency = pd.DataFrame(columns=dfColumns)
 
+    if intervNames is None:
+        intervNames = dataDB.get_interval_names()
+
     for datatype in dataDB.get_data_types():
-        for intervName, interv in intervDict.items():
+        for intervName in intervNames:
             fnameSuffix = datatype + '_' + intervName
             print(fnameSuffix)
 
@@ -224,7 +235,7 @@ def plot_pca_consistency(dataDB, intervDict, dropFirst=None, dropChannels=None):
 
             for iMouse, mousename in enumerate(mice):
                 dataRSPLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
-                                                   cropTime=interv)
+                                                   intervName=intervName)
 
                 print(set([d.shape[1:] for d in dataRSPLst]))
 

@@ -9,28 +9,25 @@ from mesostat.visualization.mpl_matrix import imshow
 from mesostat.utils.pandas_helper import outer_product_df
 
 
-def _sweep_iter(dataDB, mousename, intervDict=None, trialTypes=None):
+def _sweep_iter(dataDB, mousename, intervNames=None, trialTypes=None):
     paramDict = {'session' : dataDB.get_sessions(mousename)}
     if trialTypes is not None:
         paramDict['trialType'] = trialTypes
-    if intervDict is not None:
-        paramDict['intervName'] = list(intervDict.keys())
+    paramDict['intervName'] = intervNames if intervNames is not None else dataDB.get_interval_names()
 
     paramDF = outer_product_df(paramDict)
 
     for idx, row in paramDF.iterrows():
-        kwargs = {}
+        kwargs = {'intervName': row['intervName']}
         if 'trialType' in row.keys():
             kwargs['trialType'] = row['trialType']
-        if 'intervName' in row.keys():
-            kwargs['cropTime'] = intervDict[row['intervName']]
 
         yield row, kwargs
 
 
-def correlation_by_session(dataDB, datatype, intervDict=None, trialTypes=None, minTrials=50):
+def correlation_by_session(dataDB, datatype, intervNames=None, trialTypes=None, minTrials=50):
     for mousename in sorted(dataDB.mice):
-        for row, kwargs in _sweep_iter(dataDB, mousename, intervDict=intervDict, trialTypes=trialTypes):
+        for row, kwargs in _sweep_iter(dataDB, mousename, intervNames=intervNames, trialTypes=trialTypes):
             dataRSP = dataDB.get_neuro_data({'session': row['session']}, datatype=datatype, **kwargs)[0]
 
             dataRP = np.mean(dataRSP, axis=1)
@@ -48,9 +45,9 @@ def correlation_by_session(dataDB, datatype, intervDict=None, trialTypes=None, m
                 plt.close()
 
 
-def linear_fit_correlation(dataDB, datatype, intervDict=None, trialTypes=None, minTrials=50):
+def linear_fit_correlation(dataDB, datatype, intervNames=None, trialTypes=None, minTrials=50):
     for mousename in sorted(dataDB.mice):
-        for row, kwargs in _sweep_iter(dataDB, mousename, intervDict=intervDict, trialTypes=trialTypes):
+        for row, kwargs in _sweep_iter(dataDB, mousename, intervNames=intervNames, trialTypes=trialTypes):
             dataRSP = dataDB.get_neuro_data({'session': row['session']}, datatype=datatype, **kwargs)[0]
 
             dataRP = np.mean(dataRSP, axis=1)

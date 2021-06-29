@@ -9,7 +9,7 @@ from datetime import datetime
 from collections import defaultdict
 import skimage.transform as skt
 
-from mesostat.utils.pandas_helper import pd_append_row
+from mesostat.utils.pandas_helper import pd_append_row, pd_query, pd_is_one_row
 from mesostat.stat.performance import accuracy, d_prime
 
 import lib.gallerosalas.preprocess_common as prepcommon
@@ -392,3 +392,27 @@ class preprocess:
         dfTrialStruct.loc[idxs, 'selected'] = False
         dfTrialStruct.to_hdf(h5name, '/metadata/' + session)
 
+############################
+#  Sanity Checking
+############################
+
+    def check_reward_in_data(self, pwd):
+        for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
+            h5fname = os.path.join(pwd, mouseName + '.h5')
+
+            for idx, row in dfMouse.iterrows():
+                session = row['day'] + '_' + row['session']
+                with h5py.File(h5fname, 'a') as h5f:
+                    if session not in h5f['metadata'].keys():
+                        print(mouseName, session, 'has no metadata, skipping')
+                        continue
+
+                    dataRAW = np.copy(h5f['data'][session])
+
+                delay = pd_is_one_row(pd_query(self.dfSession, {'mousename' : mouseName, 'dateKey' : row['day'], 'sessionKey' : row['session']}))[1]['delay']
+
+                nTimestepVid = dataRAW.shape[1]
+                rewStartIdx = int((5 + delay) * 20)
+                overlap = max(0, nTimestepVid - rewStartIdx)
+
+                print(mouseName, session, delay, nTimestepVid, rewStartIdx, overlap)

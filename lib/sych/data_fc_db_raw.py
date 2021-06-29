@@ -176,20 +176,27 @@ class DataFCDatabase:
             else:
                 return np.min(expertIdxs)
 
+    def get_interval_times(self, session, mousename, interval):
+        if interval == 'PRE':
+            return -2, 0
+        elif interval == 'TEX':
+            return 3, 3.5
+        elif interval == 'REW':
+            return 6, 6.5
+        elif interval == 'AVG':
+            return 0, 8
+        else:
+            raise ValueError('Unexpected interval', interval)
+
     def find_mouse_by_session(self, session):
         return session[:5]
 
-    def cropRSP(self, dataRSP, startTime, endTime):
-        assert dataRSP.shape[1] == self.targetLength
+    # def cropRSP(self, dataRSP, startTime, endTime):
+    #     assert dataRSP.shape[1] == self.targetLength
+    #     idxs = np.logical_and(self.times >= startTime, self.times < endTime)
+    #     return dataRSP[:, idxs]
 
-        # startIdx = int(startTime * self.targetFPS)
-        # endIdx = int(endTime * self.targetFPS)
-        # return dataRSP[:, startIdx:endIdx]
-
-        idxs = np.logical_and(self.times >= startTime, self.times < endTime)
-        return dataRSP[:, idxs]
-
-    def get_neuro_data(self, selector, datatype='raw', zscoreDim=None, cropTime=None, trialType=None, performance=None):
+    def get_neuro_data(self, selector, datatype='raw', zscoreDim=None, intervName=None, trialType=None, performance=None):
         dataKey = 'data_' + datatype
 
         dataLst = []
@@ -201,6 +208,7 @@ class DataFCDatabase:
 
             for sessionThis in sessions:
                 dataRSP = np.array(h5file[dataKey][sessionThis])
+                assert dataRSP.shape[1] == self.targetLength
 
                 # Apply ZScoring if requested
                 # VERY IMPORTANT: ZScoring must apply before trial type selection and cropping, it is a function of the whole dataset
@@ -209,8 +217,10 @@ class DataFCDatabase:
                 if trialType is not None:
                     thisTrialTypeIdxs = self.get_trial_type_idxs_h5(h5file, sessionThis, trialType)
                     dataRSP = dataRSP[thisTrialTypeIdxs]
-                if cropTime is not None:
-                    dataRSP = self.cropRSP(dataRSP, *cropTime)
+                if intervName is not None:
+                    timeL, timeR = self.get_interval_times(sessionThis, mousename, intervName)
+                    idxs = np.logical_and(self.times >= timeL, self.times < timeR)
+                    dataRSP = dataRSP[:, idxs]
 
                 dataLst += [dataRSP]
 

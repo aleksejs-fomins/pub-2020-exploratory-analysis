@@ -5,6 +5,7 @@ import numpy as np
 import pymatreader
 import matplotlib.pyplot as plt
 import skimage.transform as skt
+from scipy.spatial import ConvexHull
 
 from mesostat.utils.matlab_helper import loadmat
 from mesostat.utils.arrays import numpy_merge_dimensions
@@ -40,9 +41,12 @@ def _testfile(path, critical=True):
 # H5PY
 #############################
 
-def _h5_append_group(h5path, group):
+def _h5_append_group(h5path, group, overwrite=False):
     with h5py.File(h5path, 'a') as h5file:
         if group not in h5file.keys():
+            h5file.create_group(group)
+        elif overwrite:
+            del h5file[group]
             h5file.create_group(group)
 
 
@@ -234,6 +238,27 @@ def parse_active_passive(dfTrialStruct, activePassivePath, mapCanon):
                 iTT += 1
 
     return dfTrialStruct
+
+
+def calc_allen_shortest_distances(allenMap, allenIndices):
+    pointsBoundary = {}
+    for i in allenIndices:
+        if i > 1:
+            points = np.array(np.where(allenMap == i))
+            pointsBoundary[i] = points[:, ConvexHull(points.T).vertices].T
+
+    nRegion = len(pointsBoundary)
+    minDist = np.zeros((nRegion, nRegion))
+    for i, iPoints in enumerate(pointsBoundary.values()):
+        for j, jPoints in enumerate(pointsBoundary.values()):
+            if i < j:
+                minDist[i][j] = 10000000.0
+                for p1 in iPoints:
+                    for p2 in jPoints:
+                        minDist[i][j] = np.min([minDist[i][j], np.linalg.norm(p1 - p2)])
+                minDist[j][i] = minDist[i][j]
+
+    return minDist
 
 ############################
 #  Baseline Subtraction

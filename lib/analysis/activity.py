@@ -4,40 +4,43 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import mannwhitneyu, wilcoxon, combine_pvalues
 
-from mesostat.utils.pandas_helper import pd_append_row, pd_pivot
+from mesostat.utils.pandas_helper import pd_append_row, pd_pivot, outer_product_df, drop_rows_byquery, pd_is_one_row, pd_query
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.stat.connectomics import offdiag_1D
 
 
-def compute_mean_interval(dataDB, ds, trialTypesTrg, intervDict, skipExisting=False):
+def compute_mean_interval(dataDB, ds, trialTypesTrg, intervNames=None, skipExisting=False, exclQueryLst=None):
     dataName = 'mean'
 
-    for iMouse, mousename in enumerate(sorted(dataDB.mice)):
-        for datatype in dataDB.get_data_types():
-            for trialType in trialTypesTrg:
-                for intervName, interv in intervDict.items():
-                    print(mousename, datatype, trialType, intervName)
+    argSweepDict = {
+        'mousename': sorted(list(dataDB.mice)),
+        'intervName': intervNames if intervNames is not None else dataDB.get_interval_names(),
+        'datatype': dataDB.get_data_types(),
+        'trialType': trialTypesTrg
+    }
 
-                    for session in dataDB.get_sessions(mousename, datatype=datatype):
-                        attrsDict = {
-                            'datatype': datatype,
-                            'session': session,
-                            'trialType': trialType,
-                            'interv': intervName
-                        }
+    sweepDF = outer_product_df(argSweepDict)
+    if exclQueryLst is not None:
+        sweepDF = drop_rows_byquery(sweepDF, exclQueryLst)
 
-                        dsDataLabels = ds.ping_data(dataName, attrsDict)
-                        if not skipExisting and len(dsDataLabels) > 0:
-                            dsuffix = dataName + '_' + '_'.join(attrsDict.values())
-                            print('Skipping existing', dsuffix)
-                        else:
-                            dataRSP = dataDB.get_neuro_data({'session': session}, datatype=datatype,
-                                                            cropTime=interv, trialType=trialType)[0]
+    for idx, row in sweepDF.iterrows():
+        print(list(row))
 
-                            dataRP = np.mean(dataRSP, axis=1)
+        for session in dataDB.get_sessions(row['mousename'], datatype=row['datatype']):
+            attrsDict = {**{'session': session}, **dict(row)}
 
-                            ds.delete_rows(dsDataLabels, verbose=False)
-                            ds.save_data(dataName, dataRP, attrsDict)
+            dsDataLabels = ds.ping_data(dataName, attrsDict)
+            if not skipExisting and len(dsDataLabels) > 0:
+                dsuffix = dataName + '_' + '_'.join(attrsDict.values())
+                print('Skipping existing', dsuffix)
+            else:
+                dataRSP = dataDB.get_neuro_data({'session': session}, datatype=row['datatype'],
+                                                intervName=row['intervName'], trialType=row['trialType'])[0]
+
+                dataRP = np.mean(dataRSP, axis=1)
+
+                ds.delete_rows(dsDataLabels, verbose=False)
+                ds.save_data(dataName, dataRP, attrsDict)
 
 
 def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, performance=None, dropChannels=None):
@@ -47,39 +50,42 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
     dfColumns = ['datatype', 'phase', 'consistency']
     dfConsistency = pd.DataFrame(columns=dfColumns)
 
-    for (datatype, intervName), rowsMouse in rows.groupby(['datatype', 'interv']):
+    for (datatype, intervName), rowsMouse in rows.groupby(['datatype', 'intervName']):
         pSigDict = {}
         for mousename, rowsSession in rowsMouse.groupby(['mousename']):
             pSig = []
             for session, rowsTrial in rowsSession.groupby(['session']):
                 if (performance is None) or dataDB.is_matching_performance(session, performance, mousename=mousename):
-                    dataThis = []
-                    for idx, row in rowsTrial.iterrows():
-                        dataThis += [ds.get_data(row['dset'])]
+                    if len(rowsTrial) != 2:
+                        print(mousename, session, rowsTrial)
+                        raise ValueError('Expected exactly 2 rows')
 
-                    nTrials1 = dataThis[0].shape[0]
-                    nTrials2 = dataThis[1].shape[0]
+                    dsetLabels = list(rowsTrial['dset'])
+                    data1 = ds.get_data(dsetLabels[0])
+                    data2 = ds.get_data(dsetLabels[1])
+                    nTrials1 = data1.shape[0]
+                    nTrials2 = data2.shape[1]
 
                     if (nTrials1 < minTrials) or (nTrials2 < minTrials):
                         print(session, datatype, intervName, 'too few trials', nTrials1, nTrials2, ';; skipping')
                     else:
-                        nChannels = dataThis[0].shape[1]
+                        nChannels = data1.shape[1]
 
                         if dropChannels is not None:
                             channelMask = np.ones(nChannels).astype(bool)
                             channelMask[dropChannels] = 0
-                            dataThis[0] = dataThis[0][:, channelMask]
-                            dataThis[1] = dataThis[1][:, channelMask]
+                            data1 = data1[:, channelMask]
+                            data2 = data2[:, channelMask]
                             nChannels = nChannels - len(dropChannels)
 
-                        pvals = [mannwhitneyu(dataThis[0][:, iCh], dataThis[1][:, iCh], alternative='two-sided')[1]
+                        pvals = [mannwhitneyu(data1[:, iCh], data2[:, iCh], alternative='two-sided')[1]
                                  for iCh in range(nChannels)]
                         # pSig += [(np.array(pvals) < 0.01).astype(int)]
                         pSig += [-np.log10(np.array(pvals))]
             # pSigDict[mousename] = np.sum(pSig, axis=0)
             pSigDict[mousename] = np.mean(pSig, axis=0)
 
-        mice = sorted(dataDB.mice)
+        mice = sorted(pSigDict.keys())
         nMice = len(mice)
         corrCoef = np.zeros((nMice, nMice))
         for iMouse, iName in enumerate(mice):
@@ -110,7 +116,7 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
     plt.close()
 
 
-def plot_consistency_significant_activity_byphase(dataDB, ds, minTrials=10, performance=None, dropChannels=None):
+def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTrials=10, performance=None, dropChannels=None):
     rows = ds.list_dsets_pd()
     rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
 
@@ -123,25 +129,27 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, minTrials=10, perf
             pSig = []
             for session, rowsTrial in rowsSession.groupby(['session']):
                 if (performance is None) or dataDB.is_matching_performance(session, performance, mousename=mousename):
-                    dataThis = []
-                    for idx, row in rowsTrial.iterrows():
-                        if row['interv'] != 'PRE':
-                            dataThis += [ds.get_data(row['dset'])]
+                    assert intervals[0] in list(rowsTrial['intervName'])
+                    assert intervals[1] in list(rowsTrial['intervName'])
+                    dsetLabel1 = pd_is_one_row(pd_query(rowsTrial, {'intervName': intervals[0]}))[1]['dset']
+                    dsetLabel2 = pd_is_one_row(pd_query(rowsTrial, {'intervName': intervals[1]}))[1]['dset']
+                    data1 = ds.get_data(dsetLabel1)
+                    data2 = ds.get_data(dsetLabel2)
+                    nTrials1 = data1.shape[0]
+                    nTrials2 = data2.shape[1]
 
-                    nTrials1 = dataThis[0].shape[0]
-                    nTrials2 = dataThis[1].shape[0]
                     if (nTrials1 < minTrials) or (nTrials2 < minTrials):
                         print(session, datatype, trialType, 'too few trials', nTrials1, nTrials2, ';; skipping')
                     else:
-                        nChannels = dataThis[0].shape[1]
+                        nChannels = data1.shape[1]
                         if dropChannels is not None:
                             channelMask = np.ones(nChannels).astype(bool)
                             channelMask[dropChannels] = 0
-                            dataThis[0] = dataThis[0][:, channelMask]
-                            dataThis[1] = dataThis[1][:, channelMask]
+                            data1 = data1[:, channelMask]
+                            data2 = data2[:, channelMask]
                             nChannels = nChannels - len(dropChannels)
 
-                        pvals = [wilcoxon(dataThis[0][:, iCh], dataThis[1][:, iCh], alternative='two-sided')[1]
+                        pvals = [wilcoxon(data1[:, iCh], data2[:, iCh], alternative='two-sided')[1]
                                  for iCh in range(nChannels)]
                         # pSig += [(np.array(pvals) < 0.01).astype(int)]
                         pSig += [-np.log10(np.array(pvals))]

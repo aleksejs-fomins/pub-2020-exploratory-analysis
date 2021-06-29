@@ -56,8 +56,10 @@ def plot_session(dataDB, session, channelIdx=0):
     plt.show()
 
 
-def prepare_data(dataDB, intervalsTrg, bgSub=True):
+def prepare_data(dataDB, intervNames=None, bgSub=True):
     trialTypesTrg = {'iGO', 'iNOGO'}
+    if intervNames is None:
+        intervNames = dataDB.get_interval_names()
 
     dataIndexed = []
     dataDF = pd.DataFrame()
@@ -79,11 +81,13 @@ def prepare_data(dataDB, intervalsTrg, bgSub=True):
                 else:
                     tiTrials = tiThis[trialIdxs]
 
-                    for intervName, intervRng in intervalsTrg.items():
+                    for intervName in intervNames:
+                        timeL, timeR = dataDB.get_interval_times(session, mousename, intervName)
+
                         dataInterv = []
                         for idx in tiTrials:
-                            idxL = int(idx + intervRng[0] * fps)
-                            idxR = int(idx + intervRng[1] * fps + 1)
+                            idxL = int(idx + timeL * fps)
+                            idxR = int(idx + timeR * fps + 1)
                             dataInterv += [np.mean(dataThis[idxL:idxR, :48], axis=0)]
 
                         dataIndexed += [np.array(dataInterv)]
@@ -93,7 +97,7 @@ def prepare_data(dataDB, intervalsTrg, bgSub=True):
     return dataIndexed, dataDF
 
 
-def test_prediction(dataDB, prepData, prepDF, intervalsTrg):
+def test_prediction(dataDB, prepData, prepDF, intervNames=None):
     # classifier = LogisticRegression(max_iter=10000, C=1.0E-2, solver='lbfgs')
     classifier = RidgeClassifier(max_iter=10000, alpha=1.0E-2)
 
@@ -101,14 +105,15 @@ def test_prediction(dataDB, prepData, prepDF, intervalsTrg):
         sessions = dataDB.get_sessions(mousename)
 
         nSessions = len(sessions)
-        nIntervals = len(intervalsTrg)
+        if intervNames is None:
+            intervNames = dataDB.get_interval_names()
 
         figTest, axTest = plt.subplots(ncols=3, figsize=(10, 5))
         figClass, axClass = plt.subplots(ncols=3, figsize=(10, 5))
         figTest.suptitle(mousename)
         figClass.suptitle(mousename)
 
-        for iInterv, (intervName, intervRng) in enumerate(intervalsTrg.items()):
+        for iInterv, intervName in enumerate(intervNames):
             testMat = np.zeros((48, nSessions))
             accLst = []
 

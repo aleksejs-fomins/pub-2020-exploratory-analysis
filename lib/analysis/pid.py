@@ -161,12 +161,12 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
         raise ValueError('Must provide both source and target indices or neither')
 
 
-def hypotheses_calc_pid(dataDB, mc, hDict, intervDict, h5outname, datatypes=None, nDropPCA=None, **kwargs):
+def hypotheses_calc_pid(dataDB, mc, hDict, h5outname, datatypes=None, nDropPCA=None, **kwargs):
     if datatypes is None:
         datatypes = dataDB.get_data_types()
 
     for datatype in datatypes:
-        for hLabel, (intervKey, sources, targets) in hDict.items():
+        for hLabel, (intervName, sources, targets) in hDict.items():
             print(hLabel)
 
             # Calculate PID
@@ -174,7 +174,7 @@ def hypotheses_calc_pid(dataDB, mc, hDict, intervDict, h5outname, datatypes=None
             for mousename in dataDB.mice:
                 channelNames = dataDB.get_channel_labels(mousename)
                 dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
-                                                zscoreDim='rs', cropTime=intervDict[intervKey], **kwargs)
+                                                zscoreDim='rs', intervName=intervName, **kwargs)
 
                 rezDict[(mousename,)] = pid(dataLst, mc, channelNames, sources, targets,
                                             nPerm=2000, nBin=4, nDropPCA=nDropPCA)
@@ -204,15 +204,15 @@ def hypotheses_plot_pid(dataDB, hDict, h5outname, datatypes=None):
                                     ylim=[1.0E-3, 1])
 
 
-def hypotheses_calc_plot_info3D(dataDB, hDict, intervDict, datatypes=None, nBin=4, nDropPCA=None, **kwargs):
+def hypotheses_calc_plot_info3D(dataDB, hDict, datatypes=None, nBin=4, nDropPCA=None, **kwargs):
     if datatypes is None:
         datatypes = dataDB.get_data_types()
 
     for datatype in datatypes:
-        for hLabel, (intervKey, sources, targets) in hDict.items():
+        for hLabel, (intervName, sources, targets) in hDict.items():
             print(hLabel)
 
-            dataLabel = '_'.join(['PID', datatype, hLabel, intervKey])
+            dataLabel = '_'.join(['PID', datatype, hLabel, intervName])
 
             sourcePairs = list(iter_g_2D(sources))
             for s1Label, s2Label in sourcePairs:
@@ -227,7 +227,7 @@ def hypotheses_calc_plot_info3D(dataDB, hDict, intervDict, datatypes=None, nBin=
                         targetIdx = channelNames.index(labelTrg)
 
                         dataLst = dataDB.get_neuro_data({'mousename': mousename},
-                                                        datatype=datatype, cropTime=intervDict[intervKey], **kwargs)
+                                                        datatype=datatype, intervName=intervName, **kwargs)
 
                         dataRSP = np.concatenate(dataLst, axis=0)  # Concatenate all sessions
                         dataRP = np.mean(dataRSP, axis=1)  # Average out time

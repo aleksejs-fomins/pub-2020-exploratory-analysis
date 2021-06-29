@@ -1,7 +1,4 @@
 # Standard libraries
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
 
 # Append base directory
 import os,sys
@@ -13,13 +10,10 @@ print("Appended root directory", rootpath)
 
 
 from mesostat.metric.metric import MetricCalculator
-from mesostat.utils.qt_helper import gui_fnames, gui_fpath
 from mesostat.utils.hdf5_io import DataStorage
-from mesostat.utils.pandas_helper import merge_df_from_dict
 
 from lib.sych.data_fc_db_raw import DataFCDatabase
-from lib.sych.metric_helper import metric_by_session
-import lib.analysis.pid as pid
+from lib.analysis.metric_helper import metric_by_session
 
 # tmp_path = root_path_data if 'root_path_data' in locals() else "./"
 params = {}

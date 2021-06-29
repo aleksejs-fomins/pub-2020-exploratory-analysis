@@ -7,12 +7,12 @@ from mesostat.visualization.mpl_violin import violins_labeled
 from mesostat.utils.pandas_helper import outer_product_df
 
 
-def corr_evaluation(dataDB, mc, intervDict, estimator, datatype, trialTypes=None, minTrials=50):
+def corr_evaluation(dataDB, mc, estimator, datatype, intervNames=None, trialTypes=None, minTrials=50):
     resultsDict = {'corr' : {}, 'pval' : {}}
 
     argSweepDict = {
         'mousename' : dataDB.mice,
-        'intervName' : list(intervDict.keys())
+        'intervName' : intervNames if intervNames is not None else dataDB.get_interval_names()
     }
     if trialTypes is not None:
         argSweepDict['trialType'] = trialTypes
@@ -22,13 +22,10 @@ def corr_evaluation(dataDB, mc, intervDict, estimator, datatype, trialTypes=None
     for idx, row in sweepDF.iterrows():
         kwargs = dict(row)
         del kwargs['mousename']
-        del kwargs['intervName']
 
         results = []
         for session in dataDB.get_sessions(row['mousename']):
-            dataRSP = dataDB.get_neuro_data({'session' : session}, datatype=datatype,
-                                            cropTime=intervDict[row['intervName']],
-                                            **kwargs)[0]
+            dataRSP = dataDB.get_neuro_data({'session' : session}, datatype=datatype, **kwargs)[0]
 
             nTrials, nTime, nChannel = dataRSP.shape
 
@@ -42,7 +39,7 @@ def corr_evaluation(dataDB, mc, intervDict, estimator, datatype, trialTypes=None
                 results += [rez1D]
 
         if results != []:
-            dictKey = '_'.join([row['mousename'], row['intervName'], *kwargs.values()])
+            dictKey = '_'.join([row['mousename'], *kwargs.values()])
             results = np.hstack(results)
             resultsDict['corr'][dictKey] = results[0]
             resultsDict['pval'][dictKey] = results[1]

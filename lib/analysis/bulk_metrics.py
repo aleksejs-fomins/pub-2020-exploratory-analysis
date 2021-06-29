@@ -4,13 +4,12 @@ import matplotlib.pyplot as plt
 from IPython.display import display
 from ipywidgets import IntProgress
 import seaborn as sns
-import statannot
 
-from mesostat.utils.pandas_helper import pd_query, pd_move_cols_front, outer_product_df, pd_append_row
+from mesostat.utils.pandas_helper import pd_query, pd_move_cols_front, outer_product_df, pd_append_row, drop_rows_byquery
 from mesostat.stat.machinelearning import drop_nan_rows
 from mesostat.visualization.mpl_barplot import sns_barplot
 
-from lib.sych.metric_helper import metric_by_session, metric_by_selector
+from lib.analysis.metric_helper import metric_by_session, metric_by_selector
 
 
 none2all = lambda x: x if x is not None else 'All'
@@ -29,13 +28,17 @@ def _dict_append_auto(d, key, x, xAutoFunc):
 
 def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExisting=False, verbose=True,
                       metricSettings=None, sweepSettings=None, minTrials=1, dropChannels=None,
-                      dataTypes='auto', trialTypeNames=None, perfNames=None, cropTime=None, timeAvg=False):
+                      dataTypes='auto', trialTypeNames=None, perfNames=None, intervNames=None, timeAvg=False,
+                      exclQueryLst=None):
 
     argSweepDict = {'mousename' : dataDB.mice}
     _dict_append_auto(argSweepDict, 'datatype', dataTypes, dataDB.get_data_types)
+    _dict_append_auto(argSweepDict, 'trialType', trialTypeNames, lambda: [None] + list(dataDB.get_trial_type_names()))
+    _dict_append_auto(argSweepDict, 'intervName', intervNames, dataDB.get_interval_names)
     _dict_append_auto(argSweepDict, 'performance', perfNames, lambda : [None, 'naive', 'expert'])
-    _dict_append_auto(argSweepDict, 'trialType', trialTypeNames, lambda : [None] + list(dataDB.get_trial_type_names()))
     sweepDF = outer_product_df(argSweepDict)
+    if exclQueryLst is not None:
+        sweepDF = drop_rows_byquery(sweepDF, exclQueryLst)
 
     progBar = IntProgress(min=0, max=len(sweepDF), description=nameSuffix)
     display(progBar)  # display the bar
@@ -53,7 +56,6 @@ def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExi
                            dataName=nameSuffix,
                            skipExisting=skipExisting,
                            dropChannels=dropChannels,
-                           cropTime=cropTime,
                            minTrials=minTrials,
                            timeAvg=timeAvg,
                            zscoreDim=zscoreDim,
@@ -66,14 +68,16 @@ def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExi
 
 def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix, minTrials=1, skipExisting=False,
                                  metricSettings=None, sweepSettings=None, dropChannels=None, dataTypes='auto',
-                                 trialTypeNames=None, perfNames=None, cropTime=None, verbose=True):
-
+                                 trialTypeNames=None, perfNames=None, intervNames=None, verbose=True, exclQueryLst=None):
 
     argSweepDict = {'mousename' : dataDB.mice}
     _dict_append_auto(argSweepDict, 'datatype', dataTypes, dataDB.get_data_types)
-    _dict_append_auto(argSweepDict, 'performance', perfNames, lambda : [None, 'naive', 'expert'])
-    _dict_append_auto(argSweepDict, 'trialType', trialTypeNames, lambda : [None] + list(dataDB.get_trial_type_names()))
+    _dict_append_auto(argSweepDict, 'trialType', trialTypeNames, lambda: [None] + list(dataDB.get_trial_type_names()))
+    _dict_append_auto(argSweepDict, 'intervName', intervNames, dataDB.get_interval_names)
+    _dict_append_auto(argSweepDict, 'performance', perfNames, lambda: [None, 'naive', 'expert'])
     sweepDF = outer_product_df(argSweepDict)
+    if exclQueryLst is not None:
+        sweepDF = drop_rows_byquery(sweepDF, exclQueryLst)
 
     progBar = IntProgress(min=0, max=len(sweepDF), description=nameSuffix)
     display(progBar)  # display the bar
@@ -94,7 +98,7 @@ def metric_mouse_bulk_vs_session(dataDB, mc, ds, metricName, nameSuffix, minTria
                           minTrials=minTrials,
                           zscoreDim=zscoreDim,
                           metricSettings=metricSettings,
-                          sweepSettings=sweepSettings, timeAvg=True, cropTime=cropTime,
+                          sweepSettings=sweepSettings, timeAvg=True,
                           **kwargs)
 
         progBar.value += 1
@@ -236,13 +240,14 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
         sweepLst = ['datatype']
 
     for key, dfDataType in dfAnalysis.groupby(sweepLst):
-        plotSuffix = '_'.join(key)
+        plotSuffix = '_'.join(key) if isinstance(key, list) else '_'.join([key])
+        print(plotSuffix)
 
         #################################
         # Plot 1 ::: Mouse * TrialType
         #################################
 
-        df1 = pd_query(dfDataType, {'cropTime' : 'AVG'})
+        df1 = pd_query(dfDataType, {'intervName' : 'AVG'})
         if trialTypes is not None:
             df1 = df1[df1['trialType'].isin(trialTypes)]
 
@@ -266,18 +271,18 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
 
         df2 = pd_query(dfDataType, {'trialType' : 'None'})
 
-        display(df2.head())
+        # display(df2.head())
 
-        df2 = df2[df2['cropTime'] != 'AVG']
+        df2 = df2[df2['intervName'] != 'AVG']
         if key[0] == 'bn_trial':
-            df2 = df2[df2['cropTime'] != 'PRE']
+            df2 = df2[df2['intervName'] != 'PRE']
 
         dfData2 = pd.DataFrame(columns=['mousename', 'phase', metricName])
 
         for idx, row in df2.iterrows():
             data = ds.get_data(row['dset'])
             for d in data:
-                dfData2 = pd_append_row(dfData2, [row['mousename'], row['cropTime'], d])
+                dfData2 = pd_append_row(dfData2, [row['mousename'], row['intervName'], d])
 
         dfData2 = dfData2.sort_values('mousename')
 

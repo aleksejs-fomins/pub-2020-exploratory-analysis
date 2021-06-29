@@ -280,14 +280,17 @@ class preprocess:
         df = pd.DataFrame(rezLst, columns=['mousename', 'dateKey', 'sessionKey', 'delay'])
 
         # Read sessions file
-        pwdSess = os.path.join(pathPreferences, 'sessions.csv')
+        pwdSess = os.path.join(pathPreferences, 'sessions_tex.csv')
         dfSess = pd.read_csv(pwdSess, sep='\t')
+
+        if 'delay' in dfSess.columns:
+            del dfSess['delay']
 
         # Join the two
         # dfJoin = pd.concat([dfSess, df], ignore_index=True, sort=False)
         dfJoin = pd.merge(dfSess, df, how='left', on=['mousename', 'dateKey', 'sessionKey'])
         dfJoin.to_csv(
-            os.path.join(pathPreferences, 'sessions2.csv'),
+            os.path.join(pathPreferences, 'sessions_tex.csv'),
             sep='\t', index=False
         )
 
@@ -365,11 +368,11 @@ class preprocess:
 ############################
 
     # For each trial, compute DFF, store back to h5
-    def baseline_subtraction_dff(self, pwd, iMin, iMax, skipExist=False):
+    def baseline_subtraction_dff(self, pwd, iMin, iMax, overwrite=False):
         for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
             h5fname = os.path.join(pwd, mouseName + '.h5')
 
-            prepcommon._h5_append_group(h5fname, 'bn_trial')
+            prepcommon._h5_append_group(h5fname, 'bn_trial', overwrite=overwrite)
 
             for idx, row in dfMouse.iterrows():
                 session = row['day'] + '_' + row['session']
@@ -379,7 +382,7 @@ class preprocess:
                         continue
 
                     if session in h5f['bn_trial'].keys():
-                        if skipExist:
+                        if overwrite:
                             del h5f['bn_trial'][session]
                         else:
                             print(mouseName, session, 'already exists, skipping')
@@ -401,13 +404,13 @@ class preprocess:
                     h5f['bn_trial'].create_dataset(session, data=dataBN)
 
     # For each session: fit poly, do poly-DFF, store back to h5
-    def baseline_subtraction_poly(self, pwd, ord=2, alpha=0.01, skipExist=False):
+    def baseline_subtraction_poly(self, pwd, ord=2, alpha=0.01, overwrite=False):
         for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
             h5fname = os.path.join(pwd, mouseName + '.h5')
 
-            prepcommon._h5_append_group(h5fname, 'bn_session')
-            prepcommon._h5_append_group(h5fname, 'bn_fit')
-            prepcommon._h5_append_group(h5fname, 'raw')
+            prepcommon._h5_append_group(h5fname, 'bn_session', overwrite=overwrite)
+            prepcommon._h5_append_group(h5fname, 'bn_fit', overwrite=overwrite)
+            prepcommon._h5_append_group(h5fname, 'raw', overwrite=overwrite)
 
             for idx, row in dfMouse.iterrows():
                 session = row['day'] + '_' + row['session']
@@ -417,7 +420,7 @@ class preprocess:
                         continue
 
                     if session in h5f['bn_session'].keys():
-                        if skipExist:
+                        if overwrite:
                             del h5f['bn_session'][session]
                             del h5f['bn_fit'][session]
                             del h5f['raw'][session]
@@ -495,3 +498,27 @@ class preprocess:
                             del h5f['data'][session]
                             h5f['data'][session] = data[:-nCrop]
 
+############################
+#  Sanity Checking
+############################
+
+    def check_reward_in_data(self, pwd):
+        for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
+            h5fname = os.path.join(pwd, mouseName + '.h5')
+
+            for idx, row in dfMouse.iterrows():
+                session = row['day'] + '_' + row['session']
+                with h5py.File(h5fname, 'a') as h5f:
+                    if session not in h5f['metadata'].keys():
+                        print(mouseName, session, 'has no metadata, skipping')
+                        continue
+
+                    dataRAW = np.copy(h5f['data'][session])
+
+                delay = pd_is_one_row(pd_query(self.dfSession, {'mousename' : mouseName, 'dateKey' : row['day'], 'sessionKey' : row['session']}))[1]['delay']
+
+                nTimestepVid = dataRAW.shape[1]
+                rewStartIdx = int((5 + delay) * 20)
+                overlap = max(0, nTimestepVid - rewStartIdx)
+
+                print(mouseName, session, delay, nTimestepVid, rewStartIdx, overlap)

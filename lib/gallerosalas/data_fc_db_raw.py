@@ -9,6 +9,7 @@ import matplotlib.transforms as transforms
 import matplotlib.pyplot as plt
 
 # Mesostat
+from mesostat.utils.pandas_helper import pd_is_one_row, pd_query
 from mesostat.utils.matlab_helper import loadmat
 from mesostat.utils.signals.filter import zscore_dim_ord
 from mesostat.utils.strings import enum_nonunique
@@ -16,6 +17,7 @@ from mesostat.visualization.mpl_colors import base_colors_rgb
 from mesostat.visualization.mpl_legend import plt_add_fake_legend
 
 # Local
+from lib.gallerosalas.preprocess_common import calc_allen_shortest_distances
 
 
 class DataFCDatabase:
@@ -51,6 +53,9 @@ class DataFCDatabase:
 
         print("Reading task structure")
         self._find_read_task_structure(param["root_path_data"])
+
+        print("Reading session structure")
+        self._find_read_session_structure(param["root_path_data"])
 
         print("Searching for data files")
         self._find_parse_neuro_files(param["root_path_data"])
@@ -94,6 +99,14 @@ class DataFCDatabase:
             self.timestamps = json.load(f)['timestamps']
             self.timestamps = {float(k) : v for k,v in self.timestamps.items()}
 
+    def _find_read_session_structure(self, path):
+        pwdSessionStruct = join(path, "sessions_tex.csv")
+        if not isfile(pwdSessionStruct):
+            raise ValueError("Can't find file", pwdSessionStruct)
+
+        self.dfSessions = pd.read_csv(pwdSessionStruct, sep='\t')
+        self.dfSessions['session'] = [row['dateKey'] + '_' + row['sessionKey'] for idx, row in self.dfSessions.iterrows()]
+
     def _find_parse_neuro_files(self, path):
         files = os.listdir(path)
         files = [f for f in files if (splitext(f)[1] == '.h5') and (f[:3] == 'mou')]
@@ -109,24 +122,7 @@ class DataFCDatabase:
 
     # Find the shortest distances between areas based on allen map
     def calc_shortest_distances(self):
-        pointsBoundary = {}
-        for i in self.allenIndices:
-            if i > 1:
-                points = np.array(np.where(self.allenMap == i))
-                pointsBoundary[i] = points[:, ConvexHull(points.T).vertices].T
-
-        nRegion = len(pointsBoundary)
-        minDist = np.zeros((nRegion, nRegion))
-        for i, iPoints in enumerate(pointsBoundary.values()):
-            for j, jPoints in enumerate(pointsBoundary.values()):
-                if i < j:
-                    minDist[i][j] = 10000000.0
-                    for p1 in iPoints:
-                        for p2 in jPoints:
-                            minDist[i][j] = np.min([minDist[i][j], np.linalg.norm(p1 - p2)])
-                    minDist[j][i] = minDist[i][j]
-
-        self.allenDist = minDist
+        self.allenDist = calc_allen_shortest_distances(self.allenMap, self.allenIndices)
 
     def get_data_types(self):
         return self.dataTypes
@@ -186,13 +182,56 @@ class DataFCDatabase:
         else:
             return (np.arange(nTime - window + 1) + (window - 1) / 2) / self.targetFreq
 
+    def get_interval_names(self):
+        return ['PRE', 'TEX', 'DEL', 'REW']
+
+    def get_interval_times(self, session, mousename, interval):
+        if interval == 'PRE':
+            return 0, 1
+        elif interval == 'TEX':
+            return 2, 3
+        elif interval == 'DEL':
+            return 5, 6
+        elif interval == 'REW':
+            if mousename == 'mou_6':
+                raise IOError('Mouse 6 does not have reward')
+
+            row = pd_is_one_row(pd_query(self.dfSessions, {'mousename' : mousename, 'session' : session}))[1]
+            delayLen = row['delay']
+            return 5 + np.array([delayLen, delayLen + 0.85])
+        elif interval == 'AVG':
+            return 2, self.get_interval_times(session, mousename, 'REW')[1]
+        else:
+            raise ValueError('Unexpected interval', interval)
+
     def find_mouse_by_session(self, session):
         miceLst = list(self.mice)
         miceHave = [session in self.sessions[mousename] for mousename in miceLst]
         assert np.sum(miceHave) == 1
         return miceLst[np.where(miceHave)[0][0]]
 
-    def get_neuro_data(self, selector, datatype='raw', zscoreDim=None, cropTime=None, trialType=None, performance=None):
+    def get_absolute_times(self, mousename, session, FPS=20):
+        with h5py.File(self.datapaths[mousename], 'r') as h5file:
+            nSample = h5file['data'][session].shape[1]
+
+        '''
+            1. Load session metadata
+            2. Convert all times to timestamps
+            3. From all timestamps, subtract first, convert to seconds
+            4. Extract data, get nTimes from shape
+            5. Set increment, return
+        '''
+
+        df = pd.read_hdf(self.datapaths[mousename], '/metadata/' + session)
+        timeStamps = pd.to_datetime(df['time_stamp'], format='%H:%M:%S.%f')
+        timeDeltas = timeStamps - timeStamps[0]
+
+        timesSh = np.arange(nSample) / FPS
+        timesRS = np.array([t.total_seconds() + timesSh for t in timeDeltas])
+
+        return timesRS
+
+    def get_neuro_data(self, selector, datatype='raw', zscoreDim=None, intervName=None, trialType=None, performance=None):
         selectorType = next(iter(selector.keys()))
         selectorVal = selector[selectorType]
 
@@ -227,13 +266,16 @@ class DataFCDatabase:
             # VERY IMPORTANT: ZScoring must apply before trial type selection and cropping, it is a function of the whole dataset
             dataRSP = zscore_dim_ord(dataRSP.copy(), self.dimOrdCanon, zscoreDim)
 
-            if cropTime is not None:
+            if intervName is not None:
                 # FIXME: Time index hardcoded. Make sure it works for any dimOrdCanon
-                timeIdxs = np.logical_and(times >= cropTime[0], times < cropTime[1])
+                timeL, timeR = self.get_interval_times(session, mousename, intervName)
+                timeIdxs = np.logical_and(times >= timeL, times < timeR)
                 dataRSP = dataRSP[:, timeIdxs]
             else:
+                pass
+                # raise IOError('Why do we need this?')
                 # FIXME: Number of timesteps hardcoded. Perhaps there is a better way
-                dataRSP = dataRSP[:, :160]  # Ensuring all trials that are too long are cropped to this time
+                # dataRSP = dataRSP[:, :160]  # Ensuring all trials that are too long are cropped to this time
 
             dataLst += [dataRSP]
 
