@@ -187,20 +187,20 @@ class DataFCDatabase:
 
     def get_interval_times(self, session, mousename, interval):
         if interval == 'PRE':
-            return 0, 1
+            return [[0, 1]]
         elif interval == 'TEX':
-            return 2, 3
+            return [[2, 3]]
         elif interval == 'DEL':
-            return 5, 6
+            return [[5, 6]]
         elif interval == 'REW':
             if mousename == 'mou_6':
                 raise IOError('Mouse 6 does not have reward')
 
             row = pd_is_one_row(pd_query(self.dfSessions, {'mousename' : mousename, 'session' : session}))[1]
             delayLen = row['delay']
-            return 5 + np.array([delayLen, delayLen + 0.85])
+            return [5 + np.array([delayLen, delayLen + 0.85])]
         elif interval == 'AVG':
-            return 2, self.get_interval_times(session, mousename, 'REW')[1]
+            return [self.get_interval_times(session, mousename, i)[0] for i in ['TEX', 'DEL', 'REW']]
         else:
             raise ValueError('Unexpected interval', interval)
 
@@ -267,13 +267,19 @@ class DataFCDatabase:
             dataRSP = zscore_dim_ord(dataRSP.copy(), self.dimOrdCanon, zscoreDim)
 
             if intervName is not None:
+                timeIdxs = np.zeros(len(times))
+
+                timesLst = self.get_interval_times(session, mousename, intervName)
+                for timeL, timeR in timesLst:
+                    timeIdxsThis = np.logical_and(times >= timeL, times < timeR)
+                    timeIdxs = np.logical_or(timeIdxs, timeIdxsThis)
+
                 # FIXME: Time index hardcoded. Make sure it works for any dimOrdCanon
-                timeL, timeR = self.get_interval_times(session, mousename, intervName)
-                timeIdxs = np.logical_and(times >= timeL, times < timeR)
                 dataRSP = dataRSP[:, timeIdxs]
             else:
-                pass
-                # raise IOError('Why do we need this?')
+                if selectorType == 'mousename':
+                    raise IOError('Why do we need this?')
+
                 # FIXME: Number of timesteps hardcoded. Perhaps there is a better way
                 # dataRSP = dataRSP[:, :160]  # Ensuring all trials that are too long are cropped to this time
 

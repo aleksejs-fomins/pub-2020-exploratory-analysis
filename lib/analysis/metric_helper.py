@@ -82,6 +82,7 @@ def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
     # In some use cases non-specified arguments are not implemented
     #kwargs = {'trialType': trialType, 'zscoreDim': zscoreDim, 'datatype': datatype, 'performance': performance}
     kwargs = {k: str(v) for k, v in kwargs.items() if v is not None}
+    print(kwargs)
 
     if dataName is None:
         dataName = metricName
@@ -99,6 +100,7 @@ def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
     else:
         dataLst = dataDB.get_neuro_data(selector, **kwargs)
         dataRSP = np.concatenate(dataLst, axis=0)
+        print('--', dataRSP.shape)
 
         if len(dataLst) == 0:
             print('for', selector, kwargs, 'there are no sessions, skipping')

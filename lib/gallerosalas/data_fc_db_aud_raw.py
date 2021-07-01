@@ -210,17 +210,17 @@ class DataFCDatabase:
 
     def get_interval_times(self, session, mousename, interval):
         if interval == 'PRE':
-            return 0, 1
+            return [[0, 1]]
         elif interval == 'AUD':
-            return 3, 4
+            return [[3, 4]]
         elif interval == 'DEL':
-            return 5, 6
+            return [[5, 6]]
         elif interval == 'REW':
             row = pd_is_one_row(pd_query(self.dfSessions, {'mousename' : mousename, 'session' : session}))[1]
             delayLen = row['delay']
-            return 5 + np.array([delayLen, delayLen + 1])
+            return [5 + np.array([delayLen, delayLen + 1])]
         elif interval == 'AVG':
-            return 3, self.get_interval_times(session, mousename, 'REW')[1]
+            return [self.get_interval_times(session, mousename, i)[0] for i in ['AUD', 'DEL', 'REW']]
         else:
             raise ValueError('Unexpected interval', interval)
 
@@ -268,9 +268,14 @@ class DataFCDatabase:
             dataRSP = zscore_dim_ord(dataRSP.copy(), self.dimOrdCanon, zscoreDim)
 
             if intervName is not None:
+                timeIdxs = np.zeros(len(times))
+
+                timesLst = self.get_interval_times(session, mousename, intervName)
+                for timeL, timeR in timesLst:
+                    timeIdxsThis = np.logical_and(times >= timeL, times < timeR)
+                    timeIdxs = np.logical_or(timeIdxs, timeIdxsThis)
+
                 # FIXME: Time index hardcoded. Make sure it works for any dimOrdCanon
-                timeL, timeR = self.get_interval_times(session, mousename, intervName)
-                timeIdxs = np.logical_and(times >= timeL, times < timeR)
                 dataRSP = dataRSP[:, timeIdxs]
             else:
                 pass
