@@ -38,12 +38,15 @@ class preprocess:
         self.dataPaths = pd.DataFrame(
             columns=['mouse', 'day', 'session', 'sessionPath', 'trialIndPath', 'trialStructPath', 'pathActivePassive'])
         self.pathT1 = defaultdict(dict)
-        self.find_parse_tdt(pathDict['TGT'])
+
+        if 'TGT' in pathDict:
+            self.find_parse_tdt(pathDict['TGT'])
 
         # Find parse Overlay
         self.pathRef = {}
         self.pathT2 = {}
-        self.find_parse_overlay(pathDict['Overlay'])
+        if 'Overlay' in pathDict:
+            self.find_parse_overlay(pathDict['Overlay'])
 
 
 ############################
@@ -187,6 +190,7 @@ class preprocess:
 ############################
 #  Metadata Pooling
 ############################
+
 
     # Different mice have different Go/NoGo testures
     def tex_go_nogo_bymouse(self, mouseName):
@@ -337,7 +341,7 @@ class preprocess:
     # Return as 2D array (nTrial, nTime)
     def get_pooled_data_rel_times(self, pwd, mouseName, session, FPS=20.0):
         fpath = os.path.join(pwd, mouseName + '.h5')
-        with h5py.File(fpath) as f:
+        with h5py.File(fpath, 'r') as f:
             dataRSP = np.copy(f['data'][session])
 
         '''

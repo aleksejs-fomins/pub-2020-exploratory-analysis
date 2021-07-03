@@ -15,6 +15,8 @@ from mesostat.utils.signals.filter import zscore_dim_ord
 from mesostat.utils.strings import enum_nonunique
 from mesostat.visualization.mpl_colors import base_colors_rgb
 from mesostat.visualization.mpl_legend import plt_add_fake_legend
+from mesostat.visualization.mpl_matrix import imshow
+from mesostat.visualization.mpl_colors import sample_cmap, rgb_change_color
 
 # Local
 from lib.gallerosalas.preprocess_common import calc_allen_shortest_distances
@@ -159,6 +161,9 @@ class DataFCDatabase:
     #FIXME: Why is there one more label than in allen map? Is our alignment correct?
     def get_channel_labels(self, mousename=None):
         return self.channelLabels[:27]
+
+    def map_channel_labels_canon(self):
+        return dict(zip(self.get_channel_labels(), list(self.channelAreasDF['LCanon'])))
 
     def get_nchannels(self, mousename):
         return len(self.get_channel_labels(mousename))
@@ -314,5 +319,51 @@ class DataFCDatabase:
             plt_add_fake_legend(ax, colors[:len(regDict)], list(regDict.keys()))
 
         ax.imshow(rez)
+
+    def plot_area_clusters(self, regDict, haveLegend=False):
+        trgShape = self.allenMap.shape + (3,)
+        colors = base_colors_rgb('tableau')
+        rez = np.zeros(trgShape)
+
+        imBinary = self.allenMap == 0
+        imColor = np.outer(imBinary.astype(float), np.array([0.5, 0.5, 0.5])).reshape(trgShape)
+        rez += imColor
+
+        for iGroup, (label, lst) in enumerate(regDict.items()):
+            for iROI in lst:
+                imBinary = self.allenMap == self.allenIndices[iROI]
+                imColor = np.outer(imBinary.astype(float), colors[iGroup]).reshape(trgShape)
+                rez += imColor
+
+        fig, ax = plt.subplots(figsize=(4, 4))
+        imshow(fig, ax, rez)
+        if haveLegend:
+            plt_add_fake_legend(ax, colors[:len(regDict)], list(regDict.keys()))
+        return fig, ax
+
+    def plot_area_values(self, valLst, vmin=None, vmax=None, cmap='jet'):
+        # Mapping values to colors
+        vmin = vmin if vmin is not None else np.min(valLst) * 0.9
+        vmax = vmax if vmax is not None else np.max(valLst) * 1.1
+        colors = sample_cmap(cmap, valLst, vmin, vmax, dropAlpha=True)
+
+        trgShape = self.allenMap.shape + (3,)
+        rez = np.zeros(trgShape)
+
+        imBinary = self.allenMap == 0
+        imColor = np.outer(imBinary.astype(float), np.array([0.5, 0.5, 0.5])).reshape(trgShape)
+        rez += imColor
+
+        for iROI, color in enumerate(colors):
+            if not np.any(np.isnan(color)):
+                imBinary = self.allenMap == self.allenIndices[iROI]
+                imColor = np.outer(imBinary.astype(float), color).reshape(trgShape)
+                rez += imColor
+
+        rez = rgb_change_color(rez, [0, 0, 0], np.array([255, 255, 255]))
+
+        fig, ax = plt.subplots(figsize=(4, 4))
+        imshow(fig, ax, rez, haveColorBar=True, limits=(vmin,vmax), cmap=cmap)
+        return fig, ax
 
 

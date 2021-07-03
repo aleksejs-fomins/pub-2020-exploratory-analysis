@@ -641,7 +641,42 @@ def pooled_plot_background_polyfit_residuals(dfRawH5, ordMax=5):
                 plt.show()
 
 
-def poly_view_fit(dfRawH5, session, channel, ord, onlyTrials=False, onlySelected=False):
+def get_sessions(dfRawH5, mousename):
+    row = pd_is_one_row(pd_query(dfRawH5, {'mousename' : mousename}))[1]
+    with h5py.File(row['path'], 'r') as h5file:
+        return list(h5file['data'].keys())
+
+
+def plot_raw(dfRawH5, session, iChannel, onlyTrials=False, onlySelected=False, figsize=(12,4)):
+    path = pooled_get_path_session(dfRawH5, session)
+    with h5py.File(path, 'r') as h5file:
+        data = np.copy(h5file['data'][session][:, iChannel])
+        if onlyTrials:
+            x, data = data_mark_trials(h5file, session, data=data, tmin=-2, tmax=8, onlySelected=onlySelected)
+        else:
+            x = np.arange(len(data))
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.plot(x, data)
+        ax.set_ylabel(iChannel)
+        plt.show()
+
+
+# Fit polynomial to data, return fitted result
+# If partial specified, fit different polynomials to left and right side of the data
+def poly_fit_partial(x, data, ord, xPart):
+    if xPart is None:
+        return polyfit.poly_fit_transform(x, data, ord)
+    else:
+        xThr, ordL, ordR = xPart
+        idxsL = x < xThr
+        idxsR = ~idxsL
+        rezL = polyfit.poly_fit_transform(x[idxsL], data[idxsL], ordL)
+        rezR = polyfit.poly_fit_transform(x[idxsR], data[idxsR], ordR)
+        return np.hstack([rezL, rezR])
+
+
+def poly_view_fit(dfRawH5, session, channel, ord, onlyTrials=False, onlySelected=False, xPart=None):
     path = pooled_get_path_session(dfRawH5, session)
     with h5py.File(path, 'r') as h5file:
         data = np.copy(h5file['data'][session][:, channel])
@@ -652,7 +687,7 @@ def poly_view_fit(dfRawH5, session, channel, ord, onlyTrials=False, onlySelected
 
         print(len(data))
 
-        dataFit = polyfit.poly_fit_transform(x, data, ord)
+        dataFit = poly_fit_partial(x, data, ord, xPart) # polyfit.poly_fit_transform(x, data, ord)
         fig, ax = plt.subplots(ncols=3, figsize=(12,4))
         ax[0].plot(x, data)
         ax[0].plot(x, dataFit)
@@ -769,7 +804,7 @@ def baseline_normalization(t, data3D):
     return dataRez
 
 
-def extract_store_trial_data(dfRawH5, targetFPS=20, bgOrd=2,
+def extract_store_trial_data(dfRawH5, xPartMap, targetFPS=20, bgOrd=2,
                              fitOnlySelectedTrials=True, keepExisting=True, targetSessions=None, cropTimestep=None):
     nChannel = 48
     baselineMethods = ['raw', 'bn_session', 'bn_trial']
@@ -804,20 +839,25 @@ def extract_store_trial_data(dfRawH5, targetFPS=20, bgOrd=2,
                     # Get Data
                     data = np.copy(h5file['data'][session][:, :nChannel])
 
+                    # Get polyfit partition if it is defined
+                    xPart = None if session not in xPartMap.keys() else xPartMap[session]
+
                     # Perform background subtraction
                     if fitOnlySelectedTrials:
                         # Fit polynomial only to parts of the trial that are relevant
                         dataBG = np.copy(data)
                         xIdxs, y = data_mark_trials(h5file, session, data=data, tmin=-2, tmax=8, onlySelected=True)
                         for iChannel in range(nChannel):
-                            yFit = polyfit.poly_fit_transform(xIdxs, y[:, iChannel], bgOrd)
+                            # yFit = polyfit.poly_fit_transform(xIdxs, y[:, iChannel], bgOrd)
+                            yFit = poly_fit_partial(xIdxs, y[:, iChannel], bgOrd, xPart)
                             dataBG[xIdxs, iChannel] = yFit
                     else:
                         # Fit polynomial to entire trial
                         dataBG = np.zeros(data.shape)
+                        xIdxs = np.arange(len(data))
                         for iChannel in range(nChannel):
-                            xIdxs = np.arange(len(data))
-                            dataBG[:, iChannel] = polyfit.poly_fit_transform(xIdxs, data[:, iChannel], bgOrd)
+                            # dataBG[:, iChannel] = polyfit.poly_fit_transform(xIdxs, data[:, iChannel], bgOrd)
+                            dataBG[:, iChannel] = poly_fit_partial(xIdxs, data[:, iChannel], bgOrd, xPart)
 
                     dataDict = {
                         'raw' : data - dataBG,
@@ -903,7 +943,7 @@ def postprocess_crop_bad_trials(dfRawH5, session, idxTrialsKeep):
                 h5file[key].create_dataset(session, data=data)
 
 
-def get_trial_idxs_by_interval(dfRawH5, session, idxMinSession, idxMaxSession, tMinTrial, tMaxTrial):
+def get_trial_idxs_by_interval(dfRawH5, session, idxMinSession, idxMaxSession, tMinTrial, tMaxTrial, inside=False):
     pwd = pooled_get_path_session(dfRawH5, session)
     with h5py.File(pwd, 'r') as h5file:
         FPS = h5file['data'][session].attrs['FPS']
@@ -916,8 +956,12 @@ def get_trial_idxs_by_interval(dfRawH5, session, idxMinSession, idxMaxSession, t
     for iTrial in range(len(trialStartIdxs)):
         fitLeft = trialLeftIdxs[iTrial] >= idxMinSession
         fitRight = trialRightIdxs[iTrial] <= idxMaxSession
-        if not (fitLeft and fitRight):
+        fitBoth = fitLeft and fitRight
+
+        if inside == fitBoth:
+        # if not (fitLeft and fitRight):
             rez += [iTrial]
 
+    # print(trialLeftIdxs[rez])
     print('Selected', len(rez), 'of', len(trialStartIdxs), 'trials')
     return rez

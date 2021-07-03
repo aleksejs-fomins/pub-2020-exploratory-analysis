@@ -16,7 +16,7 @@ from mesostat.visualization.mpl_cdf import cdf_labeled
 from mesostat.visualization.mpl_barplot import barplot_stacked, barplot_stacked_indexed
 from mesostat.visualization.mpl_font import update_fonts_axis
 from mesostat.stat.permtests import percentile_twosided, perm_test_resample
-from mesostat.stat.moments import n_largest_indices
+# from mesostat.stat.moments import n_largest_indices
 from mesostat.utils.iterators.matrix import iter_g_2D, iter_gn_3D
 
 
@@ -364,6 +364,12 @@ def preprocess_unique(df):
     return dfRez
 
 
+def preprocess_drop_negative(df):
+    df['muTrue'] = np.clip(df['muTrue'], 0, None)
+    df['muRand'] = np.clip(df['muRand'], 0, None)
+    return df
+
+
 def preprocess_drop_channels(df, channelLst):
     dfRez = df.copy()
 
@@ -431,6 +437,7 @@ def plot_all_results_distribution(dataDB, h5fname, plotstyle='cdf', minTrials=50
 
             # Merge Unique1 and Unique2 for this plot
             df1 = preprocess_unique(df1)
+            df1 = preprocess_drop_negative(df1)
 
             fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
 
@@ -535,6 +542,7 @@ def plot_all_frac_significant_performance_scatter(dataDB, h5fname, minTrials=50)
 
 
 # Compute a list of significant triplets for each pidType and mouse
+# FIXME: Impl original name label convertion
 def _get_pid_sign_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes, minTrials=50, trialType='iGO'):
     # Init dictionary
     mouseSignDict = {}
@@ -592,6 +600,7 @@ def _get_pid_sign_dict(dataDB, keyLabel, dfSession, h5fname, pidTypes, minTrials
 
 
 # Plot top N most significant triplets over all mice. Stack barplots for individual mice
+# FIXME: Impl original name label convertion
 def plot_all_frac_significant_3D_top_n(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=10):
     fig, ax = plt.subplots(ncols=len(pidTypes), figsize=(len(pidTypes) * 4, 4), tight_layout=True)
     for iPid, pidType in enumerate(pidTypes):
@@ -638,7 +647,10 @@ def plot_all_frac_significant_3D_top_n(dataDB, mouseSignDict, keyLabel, pidTypes
 # Plot top N targets with most total significant connections
 def plot_all_frac_significant_1D_top_n(dataDB, mouseSignDict, keyLabel, pidTypes, nTop=10):
     # FIXME: Currently relies on same dimension ordering for all mice
-    channelLabels = dataDB.get_channel_labels(list(dataDB.mice)[0])
+    lmap = dataDB.map_channel_labels_canon()
+    channelLabels = dataDB.get_channel_labels()
+    channelLabelsCanon = [lmap[l] for l in channelLabels]
+
     nChannel = len(channelLabels)
 
     fig, ax = plt.subplots(nrows=len(pidTypes), figsize=(len(pidTypes) * 6, 12), tight_layout=True)
@@ -663,7 +675,7 @@ def plot_all_frac_significant_1D_top_n(dataDB, mouseSignDict, keyLabel, pidTypes
             rezDict[mousename] = rez
 
         # 4) Plot stacked barplot with absolute numbers. Set ylim_max to total number of sessions
-        barplot_stacked_indexed(ax[iPid], rezDict, xTickLabels=channelLabels, xLabel='singlet',
+        barplot_stacked_indexed(ax[iPid], rezDict, xTickLabels=channelLabelsCanon, xLabel='singlet',
                                 yLabel='fraction of connections', title=pidType, iMax=None, rotation=90)
 
         update_fonts_axis(ax[iPid], 20)

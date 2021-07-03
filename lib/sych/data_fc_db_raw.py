@@ -1,14 +1,21 @@
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 import h5py
+import imageio
 
 # IPython-Specific
 
 # Mesostat includes
 from mesostat.utils.system import getfiles_walk
 from mesostat.utils.signals.filter import zscore_dim_ord
+from mesostat.visualization.mpl_colors import base_colors_rgb
+from mesostat.visualization.mpl_legend import plt_add_fake_legend
+from mesostat.visualization.mpl_matrix import imshow
+from mesostat.visualization.mpl_colors import sample_cmap, rgb_change_color
 
 # Local libraries
+from lib.sych.area_image_process import remap_area_image
 
 
 class DataFCDatabase:
@@ -20,6 +27,10 @@ class DataFCDatabase:
 
         # Constants
         self.expertPerfThr = 0.7
+
+        # Get local paths
+        self.localPath = os.path.dirname(os.path.abspath(__file__))
+        self.dataPath = os.path.join(os.path.dirname(os.path.dirname(self.localPath)), 'data')
 
         ##################################
         # Define resampling frequency
@@ -42,6 +53,9 @@ class DataFCDatabase:
         print("Extracting data types")
         self._extract_data_types()
 
+        print("Reading area color map")
+        self._read_parse_area_color_map(self.dataPath)
+
     def _find_parse_neuro_files(self, path):
         paths, names = getfiles_walk(path, ['raw', '.h5']).T
         paths = [os.path.join(path, fname) for path, fname in zip(paths, names)]
@@ -61,6 +75,10 @@ class DataFCDatabase:
         for mousename in self.mice:
             with h5py.File(self.dataPathsDict[mousename], 'r') as h5file:
                 self.dataTypes.update(self._get_data_types_h5(h5file))
+
+    def _read_parse_area_color_map(self, path):
+        image = imageio.imread(os.path.join(path, 'sych_areas.png'))
+        self.areaSketch = remap_area_image(image)
 
     def _selector_to_mousename(self, selector):
         return selector['mousename'] if 'mousename' in selector else selector['session'][:5]
@@ -116,6 +134,10 @@ class DataFCDatabase:
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:
             return [l.decode('UTF8') for l in h5file['channelLabels']]
+
+    # TODO: Implement me
+    def map_channel_labels_canon(self):
+        return dict(zip(self.get_channel_labels(), self.get_channel_labels()))
 
     def get_times(self):
         return self.times
@@ -238,3 +260,51 @@ class DataFCDatabase:
             trialTypeNames = np.array([bb.decode('UTF8') for bb in h5file['trialTypeNames']])
             trialTypes = trialTypeNames[trialTypes]
             return data, trialIdxs, interTrialStartIdxs, fps, trialTypes
+
+    def plot_area_clusters(self, regDict, haveLegend=False):
+        trgShape = self.areaSketch.shape + (3,)
+        colors = base_colors_rgb('tableau')
+        rez = np.zeros(trgShape)
+
+        imBinary = self.areaSketch == 1
+        imColor = np.outer(imBinary.astype(float), np.array([0.1, 0.1, 0.1])).reshape(trgShape)
+        rez += imColor
+
+        for iGroup, (label, lst) in enumerate(regDict.items()):
+            for iROI in lst:
+                imBinary = self.areaSketch == (iROI + 2)
+                imColor = np.outer(imBinary.astype(float), colors[iGroup]).reshape(trgShape)
+                rez += imColor
+
+        rez = rgb_change_color(rez, [0,0,0], np.array([255,255,255]))
+
+        fig, ax = plt.subplots(figsize=(12,8))
+        imshow(fig, ax, rez)
+        if haveLegend:
+            plt_add_fake_legend(ax, colors[:len(regDict)], list(regDict.keys()))
+        return fig, ax
+
+    def plot_area_values(self, valLst, vmin=None, vmax=None, cmap='jet'):
+        # Mapping values to colors
+        vmin = vmin if vmin is not None else np.min(valLst) * 0.9
+        vmax = vmax if vmax is not None else np.max(valLst) * 1.1
+        colors = sample_cmap(cmap, valLst, vmin, vmax, dropAlpha=True)
+
+        trgShape = self.areaSketch.shape + (3,)
+        rez = np.zeros(trgShape)
+
+        imBinary = self.areaSketch == 1
+        imColor = np.outer(imBinary.astype(float), np.array([0.1, 0.1, 0.1])).reshape(trgShape)
+        rez += imColor
+
+        for iROI, color in enumerate(colors):
+            if not np.any(np.isnan(color)):
+                imBinary = self.areaSketch == (iROI + 2)
+                imColor = np.outer(imBinary.astype(float), color).reshape(trgShape)
+                rez += imColor
+
+        rez = rgb_change_color(rez, [0, 0, 0], np.array([255, 255, 255]))
+
+        fig, ax = plt.subplots(figsize=(12, 8))
+        imshow(fig, ax, rez, haveColorBar=True, limits=(vmin,vmax), cmap=cmap)
+        return fig, ax

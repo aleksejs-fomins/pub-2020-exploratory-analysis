@@ -7,6 +7,16 @@ from scipy.stats import mannwhitneyu, wilcoxon, combine_pvalues
 from mesostat.utils.pandas_helper import pd_append_row, pd_pivot, outer_product_df, drop_rows_byquery, pd_is_one_row, pd_query
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.stat.connectomics import offdiag_1D
+from mesostat.stat.testing.htests import classification_accuracy_weighted, rstest_twosided
+
+
+def _get_test_metric(metricName):
+    if metricName == 'accuracy':
+        return classification_accuracy_weighted
+    elif metricName == 'nlog_pval':
+        return lambda x,y: -np.log10(rstest_twosided(x, y))[1]
+    else:
+        raise ValueError('Unexpected metric name', metricName)
 
 
 def compute_mean_interval(dataDB, ds, trialTypesTrg, intervNames=None, skipExisting=False, exclQueryLst=None):
@@ -43,7 +53,42 @@ def compute_mean_interval(dataDB, ds, trialTypesTrg, intervNames=None, skipExist
                 ds.save_data(dataName, dataRP, attrsDict)
 
 
-def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, performance=None, dropChannels=None):
+def plot_channel_significance_byaction(dataDB, ds, performance=None, metric='accuracy', minTrials=10, limits=(0.5, 1.0)):
+    testFunc = _get_test_metric(metric)
+
+    rows = ds.list_dsets_pd()
+    rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
+
+    for (datatype, intervName), rowsMouse in rows.groupby(['datatype', 'interv']):
+        for mousename, rowsSession in rowsMouse.groupby(['mousename']):
+            pSig = []
+            for session, rowsTrial in rowsSession.groupby(['session']):
+                if (performance is None) or dataDB.is_matching_performance(session, performance, mousename=mousename):
+                    dataThis = []
+                    for idx, row in rowsTrial.iterrows():
+                        dataThis += [ds.get_data(row['dset'])]
+
+                    nChannels = dataThis[0].shape[1]
+                    nTrials1 = dataThis[0].shape[0]
+                    nTrials2 = dataThis[1].shape[0]
+
+                    if (nTrials1 < minTrials) or (nTrials2 < minTrials):
+                        print(session, datatype, intervName, 'too few trials', nTrials1, nTrials2, ';; skipping')
+                    else:
+                        pSig += [[testFunc(dataThis[0][:, iCh], dataThis[1][:, iCh]) for iCh in range(nChannels)]]
+            # pSigDict[mousename] = np.sum(pSig, axis=0)
+            pSigAvg = np.mean(pSig, axis=0)
+
+            fig, ax = dataDB.plot_area_values(pSigAvg, vmin=limits[0], vmax=limits[1], cmap='jet')
+            plotSuffix = '_'.join([mousename, datatype, str(performance), intervName])
+            fig.savefig('significance_'+plotSuffix+'_brainmap.png')
+            plt.close()
+
+
+def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, performance=None, dropChannels=None,
+                                                   metric='accuracy', limits=None):
+    testFunc = _get_test_metric(metric)
+
     rows = ds.list_dsets_pd()
     rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
 
@@ -78,8 +123,8 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
                             data2 = data2[:, channelMask]
                             nChannels = nChannels - len(dropChannels)
 
-                        pvals = [mannwhitneyu(data1[:, iCh], data2[:, iCh], alternative='two-sided')[1]
-                                 for iCh in range(nChannels)]
+                        pvals = [testFunc(data1[:, iCh], data2[:, iCh]) for iCh in range(nChannels)]
+
                         # pSig += [(np.array(pvals) < 0.01).astype(int)]
                         pSig += [-np.log10(np.array(pvals))]
             # pSigDict[mousename] = np.sum(pSig, axis=0)
