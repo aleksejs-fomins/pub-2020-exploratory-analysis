@@ -26,14 +26,6 @@ Plots for specific subsets of sources and target constituting a hypothesis
 '''
 
 
-# Collect result and permutation-test, write to dataframe
-def _update_pid_rez_df(df, rezThis, fRand, labelS1, labelS2, labelTrg):
-    if fRand is None:
-        return _update_pid_rez_df_norand(df, rezThis, labelS1, labelS2, labelTrg)
-    else:
-        return _update_pid_rez_df_rand(df, rezThis, fRand, labelS1, labelS2, labelTrg)
-
-
 def _update_pid_rez_df_rand(df, rezThis, fRand, labelS1, labelS2, labelTrg):
     if df is None:
         df = pd.DataFrame(columns=['S1', 'S2', 'T', 'PID', 'p', 'effSize', 'muTrue', 'muRand'])
@@ -46,18 +38,10 @@ def _update_pid_rez_df_rand(df, rezThis, fRand, labelS1, labelS2, labelTrg):
     return df
 
 
-def _update_pid_rez_df_norand(df, rezThis, labelS1, labelS2, labelTrg):
-    if df is None:
-        df = pd.DataFrame(columns=['S1', 'S2', 'T', 'PID', 'muTrue'])
-
-    for iType, infType in enumerate(['U1', 'U2', 'red', 'syn']):
-        rowLst = [labelS1, labelS2, labelTrg, infType, rezThis[iType]]
-        df = pd_append_row(df, rowLst, skip_repeat=False)
-    return df
 
 
 # Calculate 3D PID with two sources and 1 target. If more than one target is provided,
-def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin=4, nDropPCA=None, verbose=True,
+def pid(dataLst, mc, labelsAll=None, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin=4, nDropPCA=None, verbose=True,
         permuteTarget=False):
     '''
     :param dataLst:     List of data over sessions, each dataset is of shape 'rsp'
@@ -84,6 +68,7 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
         dataRP = drop_PCA(dataRP, nDropPCA)
 
     dataBin = bin_data(dataRP, nBin, axis=1)  # Bin data separately for each channel
+    nTrial, nChannel = dataBin.shape
 
     if verbose:
         print("Data shape:", dataBin.shape)
@@ -111,28 +96,32 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
     if verbose:
         print("Computing PID...")
 
-    if (labelsSrc is None) and (labelsTrg is None):
+    if (labelsSrc is None) and (labelsTrg is None) and (labelsAll is None):
         ###############################
         # Loop over all possible targets excluding sources
         ###############################
 
         # Find indices of channel labels
-        channelIdxs = np.arange(len(labelsAll)).astype(int)
+        # channelIdxs = np.arange(len(labelsAll)).astype(int)
 
         # Find combinations of all source pairs
-        channelIdxTriplets = list(iter_gn_3D(channelIdxs))
+        channelIdxTriplets = list(iter_gn_3D(nChannel))
 
         rez = mc.metric3D('BivariatePID', '',
                           metricSettings={'settings_estimator': settings_estimator, 'shuffle': permuteTarget},
                           sweepSettings={'channels': channelIdxTriplets})
 
-        df = None
-        for iTriplet, (iS1, iS2, iTrg) in enumerate(channelIdxTriplets):
-            df = _update_pid_rez_df(df, rez[iTriplet], fRand, labelsAll[iS1], labelsAll[iS2], labelsAll[iTrg])
+        if nPerm == 0:
+            # 2D result: (triplets, pidType)
+            return rez
+        else:
+            # 3D result: (triplets, pidType, statType);;  statType == {'p', 'effSize', 'muTrue', 'muRand'}
+            return np.array([
+                percentile_twosided(rezThis, fRand, settings={"haveEffectSize": True, "haveMeans": True})[1:].T
+                for rezThis in rez
+            ])
 
-        return df
-
-    elif (labelsSrc is not None) and (labelsTrg is not None):
+    elif (labelsSrc is not None) and (labelsTrg is not None) and (labelsAll is not None):
         ###############################
         # Loop over targets in target list
         ###############################
@@ -142,7 +131,10 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
         targetIdxs = [labelsAll.index(t) for t in labelsTrg]
 
         # Find combinations of all source pairs
-        sourceIdxPairs = list(iter_g_2D(sourceIdxs))
+        nSrc = len(sourceIdxs)
+        nTrg = len(targetIdxs)
+        sourceIdxPairs = [sourceIdxs[it] for it in iter_g_2D(nSrc)]
+        nPairs = len(sourceIdxPairs)
 
         rez = mc.metric3D('BivariatePID', '',
                           metricSettings={'settings_estimator': settings_estimator, 'shuffle': permuteTarget},
@@ -154,7 +146,7 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
         df = None
         for iSrcPair, (iS1, iS2) in enumerate(sourceIdxPairs):
             for iTrg, labelTrg in enumerate(labelsTrg):
-                if (len(sourceIdxPairs) == 1) and (len(labelsTrg) == 1):
+                if (nPairs == 1) and (nTrg == 1):
                     rezThis = rez
                 else:
                     rezThis = rez[iSrcPair, iTrg]
@@ -218,7 +210,9 @@ def hypotheses_calc_plot_info3D(dataDB, hDict, datatypes=None, nBin=4, nDropPCA=
 
             dataLabel = '_'.join(['PID', datatype, hLabel, intervName])
 
-            sourcePairs = list(iter_g_2D(sources))
+            # Find combinations of all source pairs
+            nSrc = len(sources)
+            sourcePairs = [sources[it] for it in iter_g_2D(nSrc)]
             for s1Label, s2Label in sourcePairs:
                 for labelTrg in targets:
                     nMice = len(dataDB.mice)
