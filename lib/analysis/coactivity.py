@@ -121,25 +121,48 @@ def corr_plot_session_composite(dataDB, mc, estimator, intervNames=None, dataTyp
 # Diff
 ###############################
 
-def plot_corr_consistency_l1_mouse(dataDB, intervDict, nDropPCA=None, dropChannels=None, performance=None):
+def plot_corr_consistency_l1_mouse(dataDB, nDropPCA=None, dropChannels=None, performances=None,
+                                   trialTypes=None, exclQueryLst=None):
     mice = sorted(dataDB.mice)
     nMice = len(mice)
 
-    dfColumns = ['datatype', 'phase', 'consistency']
-    dfConsistency = pd.DataFrame(columns=dfColumns)
+    argSweepDict = {
+        'mousename': dataDB.mice,
+        'intervName': dataDB.get_interval_names(),
+        'datatype' : dataDB.get_data_types(),
+        'trialType' : trialTypes if trialTypes is not None else [None],
+        'performance': performances if performances is not None else [None],
+    }
 
-    for datatype in dataDB.get_data_types():
-        for intervName, interv in intervDict.items():
-            fnameSuffix = '_'.join([datatype, intervName, str(performance)])
-            print(fnameSuffix)
+    sweepDF = outer_product_df(argSweepDict)
+    if exclQueryLst is not None:
+        sweepDF = drop_rows_byquery(sweepDF, exclQueryLst)
+
+    sweepParam = list(argSweepDict.keys())
+    sweepParamNoMouse = list(set(sweepParam) - {'mousename'})
+
+    for paramExtra, dfExtra in sweepDF.groupby(['trialType', 'performance']):
+        plotExtraSuffix = '_'.join([str(s) for s in paramExtra if s is not None])
+
+        dfColumns = ['datatype', 'phase', 'consistency']
+        dfConsistency = pd.DataFrame(columns=dfColumns)
+
+        for paramVals, dfMouse in dfExtra.groupby(sweepParamNoMouse):
+            plotSuffix = '_'.join([str(s) for s in paramExtra + paramVals if s is not None])
+            print(plotSuffix)
 
             corrLst = []
-            for iMouse, mousename in enumerate(mice):
-                kwargs = {'datatype' : datatype, 'cropTime' : interv}
-                if performance is not None:
-                    kwargs['performance'] = performance
+            for idx, row in dfMouse.iterrows():
+                plotSuffix = '_'.join([str(s) for s in row.values])
+                print(plotSuffix)
 
-                dataRSPLst = dataDB.get_neuro_data({'mousename': mousename}, zscoreDim='rs', **kwargs)
+                kwargs = dict(row)
+                del kwargs['mousename']
+
+                # NOTE: zscore channels for each session to avoid session-wise effects
+                dataRSPLst = dataDB.get_neuro_data({'mousename' : row['mousename']},
+                                                    zscoreDim='rs',
+                                                    **kwargs)
 
                 dataRSP = np.concatenate(dataRSPLst, axis=0)
                 dataRP = np.mean(dataRSP, axis=1)
@@ -174,25 +197,25 @@ def plot_corr_consistency_l1_mouse(dataDB, intervDict, nDropPCA=None, dropChanne
 
             pPlot = sns.pairplot(data=pd.DataFrame(pairDict), vars=mice, kind='kde')
 
-            plt.savefig('corr_consistency_bymouse_scatter_' + fnameSuffix + '.png')
+            plt.savefig('corr_consistency_bymouse_scatter_' + plotSuffix + '.png')
             plt.close()
 
             fig, ax = plt.subplots()
             imshow(fig, ax, rezMat, haveColorBar=True, limits=[0,1], xTicks=mice, yTicks=mice, cmap='jet')
-            plt.savefig('corr_consistency_bymouse_metric_' + fnameSuffix + '.png')
+            plt.savefig('corr_consistency_bymouse_metric_' + plotSuffix + '.png')
             plt.close()
 
             avgConsistency = np.round(np.mean(offdiag_1D(rezMat)), 2)
-            dfConsistency = pd_append_row(dfConsistency, [datatype, intervName, avgConsistency])
+            dfConsistency = pd_append_row(dfConsistency, [row['datatype'], row['intervName'], avgConsistency])
 
-    fig, ax = plt.subplots()
-    dfPivot = pd_pivot(dfConsistency, *dfColumns)
-    sns.heatmap(data=dfPivot, ax=ax, annot=True, vmin=0, vmax=1, cmap='jet')
-    fig.savefig('consistency_coactivity_metric_'+str(performance)+'.png')
-    plt.close()
+        fig, ax = plt.subplots()
+        dfPivot = pd_pivot(dfConsistency, *dfColumns)
+        sns.heatmap(data=dfPivot, ax=ax, annot=True, vmin=0, vmax=1, cmap='jet')
+        fig.savefig('consistency_coactivity_metric_'+plotExtraSuffix+'.png')
+        plt.close()
 
 
-def plot_corr_consistency_l1_trialtype(dataDB, intervDict, nDropPCA=None, dropChannels=None, performance=None,
+def plot_corr_consistency_l1_trialtype(dataDB, nDropPCA=None, dropChannels=None, performance=None,
                                        trialTypes=None, datatype=None):
     mice = sorted(dataDB.mice)
     if trialTypes is None:
@@ -204,13 +227,13 @@ def plot_corr_consistency_l1_trialtype(dataDB, intervDict, nDropPCA=None, dropCh
     dfConsistency = pd.DataFrame(columns=dfColumns)
 
     for iMouse, mousename in enumerate(mice):
-        for intervName, interv in intervDict.items():
+        for intervName in dataDB.get_interval_names():
             fnameSuffix = '_'.join([datatype, mousename, intervName, str(performance)])
             print(fnameSuffix)
 
             corrLst = []
             for trialType in trialTypes:
-                kwargs = {'datatype' : datatype, 'cropTime' : interv, 'trialType' : trialType}
+                kwargs = {'datatype' : datatype, 'intervName' : intervName, 'trialType' : trialType}
                 if performance is not None:
                     kwargs['performance'] = performance
 
@@ -267,10 +290,10 @@ def plot_corr_consistency_l1_trialtype(dataDB, intervDict, nDropPCA=None, dropCh
     plt.close()
 
 
-def plot_corr_consistency_l1_phase(dataDB, intervDict, nDropPCA=None, dropChannels=None, performance=None, datatype=None):
+def plot_corr_consistency_l1_phase(dataDB, nDropPCA=None, dropChannels=None, performance=None, datatype=None):
     mice = sorted(dataDB.mice)
-    phases = list(intervDict.keys())
-    nPhases = len(intervDict)
+    phases =  dataDB.get_interval_names()
+    nPhases = len(phases)
 
     dfColumns = ['mousename', 'trialtype', 'consistency']
     dfConsistency = pd.DataFrame(columns=dfColumns)
@@ -281,8 +304,8 @@ def plot_corr_consistency_l1_phase(dataDB, intervDict, nDropPCA=None, dropChanne
             print(fnameSuffix)
 
             corrLst = []
-            for intervName, interv in intervDict.items():
-                kwargs = {'datatype' : datatype, 'cropTime' : interv, 'trialType' : trialType}
+            for intervName in phases:
+                kwargs = {'datatype' : datatype, 'intervName' : intervName, 'trialType' : trialType}
                 if performance is not None:
                     kwargs['performance'] = performance
 

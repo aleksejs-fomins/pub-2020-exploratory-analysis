@@ -57,7 +57,8 @@ def _update_pid_rez_df_norand(df, rezThis, labelS1, labelS2, labelTrg):
 
 
 # Calculate 3D PID with two sources and 1 target. If more than one target is provided,
-def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin=4, nDropPCA=None, verbose=True):
+def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin=4, nDropPCA=None, verbose=True,
+        permuteTarget=False):
     '''
     :param dataLst:     List of data over sessions, each dataset is of shape 'rsp'
     :param mc:          MetricCalculator
@@ -66,6 +67,9 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
     :param labelsTrg:   List of labels of the target channels. Each target is analysed separately
     :param nPerm:       Number of permutations to use for permutation testing
     :param nBin:        Number of bins to use to bin the data
+    :param nDropPCA:    Number of primary principal components to drop prior to analysis
+    :param verbose:     Verbosity of output
+    :param permuteTarget:  Whether to permute data by target, resulting in shuffled estimator
     :return:            Dataframe containing PID results for each combination of sources and targets
     '''
 
@@ -119,7 +123,7 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
         channelIdxTriplets = list(iter_gn_3D(channelIdxs))
 
         rez = mc.metric3D('BivariatePID', '',
-                          metricSettings={'settings_estimator': settings_estimator},
+                          metricSettings={'settings_estimator': settings_estimator, 'shuffle': permuteTarget},
                           sweepSettings={'channels': channelIdxTriplets})
 
         df = None
@@ -141,7 +145,7 @@ def pid(dataLst, mc, labelsAll, labelsSrc=None, labelsTrg=None, nPerm=1000, nBin
         sourceIdxPairs = list(iter_g_2D(sourceIdxs))
 
         rez = mc.metric3D('BivariatePID', '',
-                          metricSettings={'settings_estimator': settings_estimator},
+                          metricSettings={'settings_estimator': settings_estimator, 'shuffle': permuteTarget},
                           sweepSettings={'src': sourceIdxPairs, 'trg': targetIdxs})
         # rez = mc.metric3D('BivariatePID', '',
         #                   metricSettings={'settings_estimator': settings_estimator, 'src': sourceIdxs},

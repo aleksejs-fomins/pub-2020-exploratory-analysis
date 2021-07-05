@@ -198,6 +198,9 @@ class DataFCDatabase:
             else:
                 return np.min(expertIdxs)
 
+    def get_interval_names(self):
+        return ['PRE', 'TEX', 'REW']
+
     def get_interval_times(self, session, mousename, interval):
         if interval == 'PRE':
             return -2, 0
