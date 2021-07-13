@@ -18,7 +18,8 @@ from mesostat.utils.pandas_helper import pd_query, pd_merge_multiple, pd_is_one_
 from mesostat.visualization.mpl_barplot import barplot_stacked_indexed, barplot_labeled
 from mesostat.visualization.mpl_matrix import imshow
 
-from lib.analysis.pid import preprocess_unique, preprocess_drop_negative, preprocess_drop_channels, pid
+from lib.analysis.pid_common import pid
+from lib.analysis.pid_all_session_old import preprocess_unique, preprocess_drop_negative, preprocess_drop_channels
 
 
 def pid_all_parse_key(key):

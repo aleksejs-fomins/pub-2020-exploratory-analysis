@@ -187,6 +187,10 @@ class DataFCDatabase:
         else:
             return (np.arange(nTime - window + 1) + (window - 1) / 2) / self.targetFreq
 
+    def get_delay_length(self, mousename, session):
+        row = pd_is_one_row(pd_query(self.dfSessions, {'mousename': mousename, 'session': session}))[1]
+        return row['delay']
+
     def get_interval_names(self):
         return ['PRE', 'TEX', 'DEL', 'REW']
 
@@ -201,8 +205,7 @@ class DataFCDatabase:
             if mousename == 'mou_6':
                 raise IOError('Mouse 6 does not have reward')
 
-            row = pd_is_one_row(pd_query(self.dfSessions, {'mousename' : mousename, 'session' : session}))[1]
-            delayLen = row['delay']
+            delayLen = self.get_delay_length(mousename, session)
             return [5 + np.array([delayLen, delayLen + 0.85])]
         elif interval == 'AVG':
             return [self.get_interval_times(session, mousename, i)[0] for i in ['TEX', 'DEL', 'REW']]
@@ -320,7 +323,7 @@ class DataFCDatabase:
 
         ax.imshow(rez)
 
-    def plot_area_clusters(self, regDict, haveLegend=False):
+    def plot_area_clusters(self, fig, ax, regDict, haveLegend=False):
         trgShape = self.allenMap.shape + (3,)
         colors = base_colors_rgb('tableau')
         rez = np.zeros(trgShape)
@@ -335,13 +338,11 @@ class DataFCDatabase:
                 imColor = np.outer(imBinary.astype(float), colors[iGroup]).reshape(trgShape)
                 rez += imColor
 
-        fig, ax = plt.subplots(figsize=(4, 4))
         imshow(fig, ax, rez)
         if haveLegend:
             plt_add_fake_legend(ax, colors[:len(regDict)], list(regDict.keys()))
-        return fig, ax
 
-    def plot_area_values(self, valLst, vmin=None, vmax=None, cmap='jet'):
+    def plot_area_values(self, fig, ax, valLst, vmin=None, vmax=None, cmap='jet'):
         # Mapping values to colors
         vmin = vmin if vmin is not None else np.min(valLst) * 0.9
         vmax = vmax if vmax is not None else np.max(valLst) * 1.1
@@ -357,13 +358,9 @@ class DataFCDatabase:
         for iROI, color in enumerate(colors):
             if not np.any(np.isnan(color)):
                 imBinary = self.allenMap == self.allenIndices[iROI]
+
                 imColor = np.outer(imBinary.astype(float), color).reshape(trgShape)
                 rez += imColor
 
         rez = rgb_change_color(rez, [0, 0, 0], np.array([255, 255, 255]))
-
-        fig, ax = plt.subplots(figsize=(4, 4))
         imshow(fig, ax, rez, haveColorBar=True, limits=(vmin,vmax), cmap=cmap)
-        return fig, ax
-
-

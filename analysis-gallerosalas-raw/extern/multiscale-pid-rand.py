@@ -1,8 +1,3 @@
-# Standard libraries
-import h5py
-import numpy as np
-import pandas as pd
-
 # Append base directory
 import os,sys
 rootname = "pub-2020-exploratory-analysis"
@@ -12,12 +7,8 @@ sys.path.append(rootpath)
 print("Appended root directory", rootpath)
 
 from mesostat.metric.metric import MetricCalculator
-from mesostat.utils.hdf5_helper import type_of_path
-from mesostat.utils.pandas_helper import outer_product_df, drop_rows_byquery
-
 from lib.gallerosalas.data_fc_db_raw import DataFCDatabase
-import lib.analysis.pid as pid
-
+from lib.analysis.pid_multiprocess import pid_multiprocess_session
 
 # tmp_path = root_path_data if 'root_path_data' in locals() else "./"
 params = {}
@@ -29,46 +20,19 @@ dataDB = DataFCDatabase(params)
 h5outname = 'gallerosalas_result_multiregional_pid_df_rand.h5'
 mc = MetricCalculator(serial=True, verbose=False) #, nCore=4)
 
-# If output file does not exist, create it
-if not os.path.isfile(h5outname):
-    with h5py.File(h5outname, 'w') as f:
-        pass
-
 # Sweep over following parameters
 argSweepDict = {
-    'mousename': ['mou_5'],  #dataDB.mice
+    'mousename': dataDB.mice,  # ['mou_5']
     'intervName': dataDB.get_interval_names(),
-    'datatype': dataDB.get_data_types(),
-    'trialType': [None, 'Hit', 'CR']
+    'datatype': ['bn_trial', 'bn_session'],
+    'trialType': [None] + dataDB.get_trial_type_names()
 }
 
 # Exclude following parameter combinations
 exclQueryLst = [
-    {'datatype': 'bn_trial', 'intervName': 'PRE'}   # Pre-trial interval not meaningful for bn_trial
+    {'datatype': 'bn_trial', 'intervName': 'PRE'},   # Pre-trial interval not meaningful for bn_trial
+    {'mousename' : 'mou_6', 'intervName': 'REW'}     # No reward recorded for mouse 6
 ]
-sweepDF = outer_product_df(argSweepDict)
-sweepDF = drop_rows_byquery(sweepDF, exclQueryLst)
 
-for idx, row in sweepDF.iterrows():
-    channelNames = dataDB.get_channel_labels(row['mousename'])
-    nChannels = len(channelNames)
-
-    mouseDataLabel = 'PID_' + '_'.join([str(key) for key in row.keys()])
-    for session in dataDB.get_sessions(row['mousename'], datatype=row['datatype']):
-        sessionDataLabel = mouseDataLabel + '_' + session
-        print(sessionDataLabel)
-
-        if type_of_path(h5outname, sessionDataLabel) is not None:
-            print(sessionDataLabel, 'already calculated, skipping')
-        else:
-            kwargs = dict(row)
-            del kwargs['mousename']
-
-            # Get data
-            dataLst = dataDB.get_neuro_data({'session': session}, zscoreDim=None, **kwargs)
-
-            # Calculate PID
-            rezDF = pid.pid(dataLst, mc, channelNames, labelsSrc=None, labelsTrg=None, nPerm=0, nBin=4, permuteTarget=True)
-
-            # Save to file
-            rezDF.to_hdf(h5outname, sessionDataLabel, mode='a', format='table', data_columns=True)
+pid_multiprocess_session(dataDB, mc, h5outname, argSweepDict, exclQueryLst,
+                         dim=3, nBin=4, permuteTarget=True, dropChannels=[16, 26])

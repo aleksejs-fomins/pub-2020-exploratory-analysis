@@ -220,7 +220,7 @@ def scatter_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, yl
         plt.close()
 
 
-def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None):
+def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None, intervNames=None):
     '''
     Sweep over datatypes
     1. (Mouse * [iGO, iNOGO]) @ {interv='AVG'}
@@ -258,11 +258,11 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
             for d in data:
                 dfData1 = pd_append_row(dfData1, [row['mousename'], row['trialType'], d])
 
-        dfData1 = dfData1.sort_values('mousename')
+        mice = sorted(set(dfData1['mousename']))
         fig, ax = plt.subplots()
-        sns_barplot(ax, dfData1, "mousename", metricName, 'trialType', annotHue=True)
+        sns_barplot(ax, dfData1, "mousename", metricName, 'trialType', annotHue=True, xOrd=mice, hOrd=trialTypes)
         # sns.barplot(ax=ax, x="mousename", y=metricName, hue='trialType', data=dfData1)
-        fig.savefig(metricName + '_barplot_trialtype_' + plotSuffix + '.png')
+        fig.savefig(metricName + '_barplot_trialtype_' + plotSuffix + '.png', dpi=300)
         plt.close()
 
         #################################
@@ -287,9 +287,9 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
         dfData2 = dfData2.sort_values('mousename')
 
         fig, ax = plt.subplots()
-        sns_barplot(ax, dfData2.sort_values(by=['phase', 'mousename']), "mousename", metricName, 'phase', annotHue=False)
+        sns_barplot(ax, dfData2, "mousename", metricName, 'phase', annotHue=False, xOrd=mice, hOrd=intervNames)
         # sns.barplot(ax=ax, x="mousename", y=metricName, hue='phase', data=dfData2)
-        fig.savefig(metricName + '_barplot_phase_' + plotSuffix + '.png')
+        fig.savefig(metricName + '_barplot_phase_' + plotSuffix + '.png', dpi=300)
         plt.close()
 
 

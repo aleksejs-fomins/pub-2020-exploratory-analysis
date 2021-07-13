@@ -10,7 +10,7 @@ from mesostat.stat.connectomics import tril_1D, offdiag_1D
 from mesostat.utils.pandas_helper import outer_product_df, pd_append_row, pd_pivot, drop_rows_byquery
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
-from mesostat.stat.clustering import cluster_dist_matrix, cluster_plot
+from mesostat.stat.clustering import cluster_dist_matrix_max, cluster_plot
 
 ###############################
 # Correlation Plots
@@ -75,8 +75,8 @@ def corr_plot_session_composite(dataDB, mc, estimator, intervNames=None, dataTyp
         imshow(fig, ax[0], rez2D, title='corr', haveColorBar=True, limits=[-1,1], cmap='jet')
 
         # Plot clustering
-        clusters = cluster_dist_matrix(rez2D, clusterParam, method='affinity')
-        cluster_plot(fig, ax[1], rez2D, clusters, channelLabels)
+        clusters = cluster_dist_matrix_max(rez2D, clusterParam, method='Affinity')
+        cluster_plot(fig, ax[1], rez2D, clusters, channelLabels, limits=[-1,1], cmap='jet')
 
         # Save image
         plt.savefig('corr_all_' + plotSuffix + '.png')
@@ -89,7 +89,8 @@ def corr_plot_session_composite(dataDB, mc, estimator, intervNames=None, dataTyp
                 dropChannels = np.array(dropChannels)
                 clusterDict = {c : [el + np.sum(dropChannels < el) for el in v] for c,v in clusterDict.items()}
 
-            fig, ax = dataDB.plot_area_clusters(clusterDict, haveLegend=True)
+            fig, ax = plt.subplots(figsize=(4, 4))
+            dataDB.plot_area_clusters(fig, ax, clusterDict, haveLegend=True)
             fig.savefig('corr_all_' + plotSuffix + '_brainplot.png')
             plt.close()
 

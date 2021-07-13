@@ -228,3 +228,63 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTria
     sns.heatmap(data=dfPivot, ax=ax, annot=True, vmax=1, cmap='jet')
     fig.savefig('consistency_significant_activity_phase_bymouse_metric_' + str(performance) + '.png')
     plt.close()
+
+
+def plot_activity_bychannel(dataDB, trialType, vmin=None, vmax=None, drop6=False):
+    for datatype in ['bn_trial', 'bn_session']:
+        mice = sorted(dataDB.mice)
+        intervals = dataDB.get_interval_names()
+
+        fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals), figsize=(4 * len(intervals), 4 * len(mice)))
+
+        for iMouse, mousename in enumerate(mice):
+            ax[iMouse][0].set_ylabel(mousename)
+            for iInterv, intervName in enumerate(intervals):
+                ax[0][iInterv].set_xlabel(intervName)
+                if (~drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
+                    print(datatype, mousename, intervName)
+
+                    dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype, intervName=intervName, trialType=trialType)
+                    dataRSP = np.concatenate(dataLst, axis=0)
+                    dataP = np.mean(dataRSP, axis=(0,1))
+
+                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataP, vmin=vmin, vmax=vmax, cmap='jet')
+
+        plt.show()
+
+
+def plot_classification_accuracy_bychannel(dataDB, drop6=False):
+    for datatype in ['bn_trial', 'bn_session']:
+        mice = sorted(dataDB.mice)
+        intervals = dataDB.get_interval_names()
+
+        fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals), figsize=(4 * len(intervals), 4 * len(mice)))
+
+        for iMouse, mousename in enumerate(mice):
+            ax[iMouse][0].set_ylabel(mousename)
+            for iInterv, intervName in enumerate(intervals):
+                ax[0][iInterv].set_xlabel(intervName)
+                if (~drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
+                    print(datatype, mousename, intervName)
+
+                    dataLst = [
+                        dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
+                                              intervName=intervName, trialType=trialType)
+                        for trialType in ['Hit', 'FA', 'CR', 'Miss']
+                    ]
+
+                    # Stitch all sessions
+                    dataLst = [np.concatenate(data, axis=0) for data in dataLst]
+
+                    # Average out time
+                    dataLst = [np.mean(data, axis=1) for data in dataLst]
+
+                    # Split two textures
+                    dataT1 = np.concatenate([dataLst[0], dataLst[1]])
+                    dataT2 = np.concatenate([dataLst[2], dataLst[3]])
+
+                    svcAcc = [classification_accuracy_weighted(x[:, None], y[:, None]) for x, y in zip(dataT1.T, dataT2.T)]
+
+                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], svcAcc, vmin=0.5, vmax=1.0, cmap='jet')
+
+        plt.show()
