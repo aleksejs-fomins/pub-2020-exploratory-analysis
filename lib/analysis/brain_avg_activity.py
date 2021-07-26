@@ -36,13 +36,13 @@ def _resample_delay(dataRSP, tStart, tStop, FPS=20.0, padReward=False):
     return np.concatenate([dataPRE, dataDEL, dataREW], axis=1)
 
 
-def _get_data_concatendated_sessions(dataDB, haveDelay, mousename, datatype, trialType):
+def _get_data_concatendated_sessions(dataDB, haveDelay, mousename, zscoreDim=None, **kwargs):
     if not haveDelay:
-        dataRSPLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype, trialType=trialType)
+        dataRSPLst = dataDB.get_neuro_data({'mousename': mousename}, zscoreDim=zscoreDim, **kwargs)
     else:
         dataRSPLst = []
         for session in dataDB.get_sessions(mousename):
-            dataRSP = dataDB.get_neuro_data({'session': session}, datatype=datatype, trialType=trialType)[0]
+            dataRSP = dataDB.get_neuro_data({'session': session}, zscoreDim=zscoreDim, **kwargs)[0]
             delayStart = dataDB.get_interval_times(session, mousename, 'DEL')[0][0]
             delayEnd = delayStart + dataDB.get_delay_length(mousename, session)
             dataRSPLst += [_resample_delay(dataRSP, delayStart, delayEnd, FPS=dataDB.targetFreq, padReward=True)]
@@ -104,7 +104,7 @@ def plot_pca1_mouse(dataDB, trialTypesSelected=('Hit', 'CR'), skipReward=None):
 
         for iMouse, mousename in enumerate(sorted(dataDB.mice)):
             # Train PCA on whole dataset, but only trial based timesteps
-            dataRSP = _get_data_concatendated_sessions(dataDB, haveDelay, mousename, datatype, None)
+            dataRSP = _get_data_concatendated_sessions(dataDB, haveDelay, mousename, **{'datatype': datatype})
             timesTrial = dataDB.get_times(dataRSP.shape[1])
 
             dataSP = numpy_merge_dimensions(dataRSP, 0, 2)
@@ -117,7 +117,8 @@ def plot_pca1_mouse(dataDB, trialTypesSelected=('Hit', 'CR'), skipReward=None):
 
             for trialType in trialTypesSelected:
                 # Evaluate on individual trials
-                dataRSP = _get_data_concatendated_sessions(dataDB, haveDelay, mousename, datatype, trialType)
+                kwargs = {'datatype': datatype, 'trialType': trialType}
+                dataRSP = _get_data_concatendated_sessions(dataDB, haveDelay, mousename, **kwargs)
                 dataSP = np.nanmean(dataRSP, axis=0)
                 dataPCA = pcaTransform(dataSP)
                 dataAvg = np.mean(dataSP, axis=1)

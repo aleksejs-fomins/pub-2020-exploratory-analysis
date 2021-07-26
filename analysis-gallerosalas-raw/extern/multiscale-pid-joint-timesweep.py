@@ -24,15 +24,15 @@ mc = MetricCalculator(serial=True, verbose=False) #, nCore=4)
 # Sweep over following parameters
 argSweepDict = {
     'mousename': dataDB.mice,  # ['mvg_4']
-    'intervName': dataDB.get_interval_names(),
+    # 'intervName': dataDB.get_interval_names(),
     'datatype': ['bn_trial', 'bn_session'],
     'trialType': ['None', 'Hit', 'CR']
 }
 
 # Exclude following parameter combinations
 exclQueryLst = [
-    {'datatype': 'bn_trial', 'intervName': 'PRE'},   # Pre-trial interval not meaningful for bn_trial
-    {'mousename' : 'mou_6', 'intervName': 'REW'}     # No reward recorded for mouse 6
+    # {'datatype': 'bn_trial', 'intervName': 'PRE'},   # Pre-trial interval not meaningful for bn_trial
+    # {'mousename' : 'mou_6', 'intervName': 'REW'}     # No reward recorded for mouse 6
 ]
 
 pid_multiprocess_mouse_trgsweep(dataDB, mc, h5outname, argSweepDict, exclQueryLst, timeSweep=True,

@@ -5,6 +5,7 @@ from mesostat.utils.h5py_lock import h5wrap
 from mesostat.utils.pandas_helper import outer_product_df, drop_rows_byquery
 
 import lib.analysis.pid_common as pid
+from lib.analysis.brain_avg_activity import _get_data_concatendated_sessions
 
 
 def _h5_touch_file(h5outname):
@@ -118,6 +119,7 @@ def pid_multiprocess_mouse_trgsweep(dataDB, mc, h5outname, argSweepDict, exclQue
     sweepDF = drop_rows_byquery(sweepDF, exclQueryLst)
 
     channelLabels = dataDB.get_channel_labels()
+    haveDelay = 'DEL' in dataDB.get_interval_names()
 
     for idx, row in sweepDF.iterrows():
         for iTrg, trgLabel in enumerate(channelLabels):
@@ -140,7 +142,10 @@ def pid_multiprocess_mouse_trgsweep(dataDB, mc, h5outname, argSweepDict, exclQue
                     kwargs = {k if k != 'None' else None: v for k,v in kwargs.items()}
 
                     # Get data
-                    dataLst = dataDB.get_neuro_data({'mousename': row['mousename']}, zscoreDim=None, **kwargs)
+                    dataLst = [_get_data_concatendated_sessions(dataDB, haveDelay, row['mousename'],
+                                                                zscoreDim=None, **kwargs)]
+
+                    # dataLst = dataDB.get_neuro_data({'mousename': row['mousename']}, zscoreDim=None, **kwargs)
 
                     # Calculate PID
                     rezIdxs, rezVals = pid.pid(dataLst, mc, metric=metric, dim=dim, nBin=nBin, timeSweep=timeSweep,
