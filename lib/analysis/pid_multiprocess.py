@@ -145,6 +145,8 @@ def pid_multiprocess_mouse_trgsweep(dataDB, mc, h5outname, argSweepDict, exclQue
                     dataLst = [_get_data_concatendated_sessions(dataDB, haveDelay, row['mousename'],
                                                                 zscoreDim=None, **kwargs)]
 
+                    print(len(dataLst), dataLst[0].shape, haveDelay, row['mousename'], kwargs)
+
                     # dataLst = dataDB.get_neuro_data({'mousename': row['mousename']}, zscoreDim=None, **kwargs)
 
                     # Calculate PID
