@@ -163,6 +163,9 @@ class DataFCDatabase:
     def get_nchannels(self, mousename):
         return len(self.get_channel_labels(mousename))
 
+    def map_channel_labels_canon(self):
+        return dict(zip(self.get_channel_labels(), list(self.channelAreasDF['LCanon'])))
+
     def get_sessions(self, mousename, datatype=None):
         return self.sessions[mousename]
 
@@ -320,7 +323,7 @@ class DataFCDatabase:
 
         ax.imshow(rez)
 
-    def plot_area_clusters(self, fig, ax, regDict, haveLegend=False):
+    def plot_area_clusters(self, fig, ax, regDict, haveLegend=False, haveColorBar=True):
         trgShape = self.allenMap.shape + (3,)
         colors = base_colors_rgb('tableau')
         rez = np.zeros(trgShape)
@@ -335,11 +338,11 @@ class DataFCDatabase:
                 imColor = np.outer(imBinary.astype(float), colors[iGroup]).reshape(trgShape)
                 rez += imColor
 
-        imshow(fig, ax, rez)
+        imshow(fig, ax, rez, haveColorBar=haveColorBar)
         if haveLegend:
             plt_add_fake_legend(ax, colors[:len(regDict)], list(regDict.keys()))
 
-    def plot_area_values(self, fig, ax, valLst, vmin=None, vmax=None, cmap='jet'):
+    def plot_area_values(self, fig, ax, valLst, vmin=None, vmax=None, cmap='jet', haveColorBar=True):
         # Mapping values to colors
         vmin = vmin if vmin is not None else np.min(valLst) * 0.9
         vmax = vmax if vmax is not None else np.max(valLst) * 1.1
@@ -360,4 +363,4 @@ class DataFCDatabase:
 
         rez = rgb_change_color(rez, [0, 0, 0], np.array([255, 255, 255]))
 
-        imshow(fig, ax, rez, haveColorBar=True, limits=(vmin,vmax), cmap=cmap)
+        imshow(fig, ax, rez, haveColorBar=haveColorBar, limits=(vmin,vmax), cmap=cmap)

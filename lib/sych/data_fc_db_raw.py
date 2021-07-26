@@ -264,7 +264,7 @@ class DataFCDatabase:
             trialTypes = trialTypeNames[trialTypes]
             return data, trialIdxs, interTrialStartIdxs, fps, trialTypes
 
-    def plot_area_clusters(self, regDict, haveLegend=False):
+    def plot_area_clusters(self, regDict, haveLegend=False, haveColorBar=True):
         trgShape = self.areaSketch.shape + (3,)
         colors = base_colors_rgb('tableau')
         rez = np.zeros(trgShape)
@@ -282,12 +282,12 @@ class DataFCDatabase:
         rez = rgb_change_color(rez, [0,0,0], np.array([255,255,255]))
 
         fig, ax = plt.subplots(figsize=(12,8))
-        imshow(fig, ax, rez)
+        imshow(fig, ax, rez, haveColorBar=haveColorBar)
         if haveLegend:
             plt_add_fake_legend(ax, colors[:len(regDict)], list(regDict.keys()))
         return fig, ax
 
-    def plot_area_values(self, valLst, vmin=None, vmax=None, cmap='jet'):
+    def plot_area_values(self, fig, ax, valLst, vmin=None, vmax=None, cmap='jet', haveColorBar=True):
         # Mapping values to colors
         vmin = vmin if vmin is not None else np.min(valLst) * 0.9
         vmax = vmax if vmax is not None else np.max(valLst) * 1.1
@@ -308,6 +308,5 @@ class DataFCDatabase:
 
         rez = rgb_change_color(rez, [0, 0, 0], np.array([255, 255, 255]))
 
-        fig, ax = plt.subplots(figsize=(12, 8))
-        imshow(fig, ax, rez, haveColorBar=True, limits=(vmin,vmax), cmap=cmap)
+        imshow(fig, ax, rez, haveColorBar=haveColorBar, limits=(vmin,vmax), cmap=cmap)
         return fig, ax

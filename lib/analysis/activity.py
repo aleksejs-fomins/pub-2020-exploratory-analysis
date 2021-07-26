@@ -10,6 +10,10 @@ from mesostat.stat.connectomics import offdiag_1D
 from mesostat.stat.testing.htests import classification_accuracy_weighted, rstest_twosided
 
 
+def subset_dict(d1, d2):
+    return d1.items() <= d2.items()
+
+
 def _get_test_metric(metricName):
     if metricName == 'accuracy':
         return classification_accuracy_weighted
@@ -53,36 +57,274 @@ def compute_mean_interval(dataDB, ds, trialTypesTrg, intervNames=None, skipExist
                 ds.save_data(dataName, dataRP, attrsDict)
 
 
-def plot_channel_significance_byaction(dataDB, ds, performance=None, metric='accuracy', minTrials=10, limits=(0.5, 1.0)):
+def significance_brainplot_mousephase_byaction(dataDB, ds, performance=None, #exclQueryLst=None,
+                                               metric='accuracy', minTrials=10, limits=(0.5, 1.0), fontsize=20):
     testFunc = _get_test_metric(metric)
 
     rows = ds.list_dsets_pd()
     rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
 
-    for (datatype, intervName), rowsMouse in rows.groupby(['datatype', 'interv']):
-        for mousename, rowsSession in rowsMouse.groupby(['mousename']):
-            pSig = []
-            for session, rowsTrial in rowsSession.groupby(['session']):
-                if (performance is None) or dataDB.is_matching_performance(session, performance, mousename=mousename):
-                    dataThis = []
-                    for idx, row in rowsTrial.iterrows():
-                        dataThis += [ds.get_data(row['dset'])]
+    intervNames = dataDB.get_interval_names()
+    mice = sorted(dataDB.mice)
+    nInterv = len(intervNames)
+    nMice = len(mice)
 
-                    nChannels = dataThis[0].shape[1]
-                    nTrials1 = dataThis[0].shape[0]
-                    nTrials2 = dataThis[1].shape[0]
+    for datatype, dfDataType in rows.groupby(['datatype']):
+        fig, ax = plt.subplots(nrows=nMice, ncols=nInterv,
+                               figsize=(4 * nInterv, 4 * nMice), tight_layout=True)
 
-                    if (nTrials1 < minTrials) or (nTrials2 < minTrials):
-                        print(session, datatype, intervName, 'too few trials', nTrials1, nTrials2, ';; skipping')
-                    else:
-                        pSig += [[testFunc(dataThis[0][:, iCh], dataThis[1][:, iCh]) for iCh in range(nChannels)]]
-            # pSigDict[mousename] = np.sum(pSig, axis=0)
-            pSigAvg = np.mean(pSig, axis=0)
+        for iInterv, intervName in enumerate(intervNames):
+            ax[0][iInterv].set_title(intervName, fontsize=fontsize)
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
-            fig, ax = dataDB.plot_area_values(pSigAvg, vmin=limits[0], vmax=limits[1], cmap='jet')
-            plotSuffix = '_'.join([mousename, datatype, str(performance), intervName])
-            fig.savefig('significance_'+plotSuffix+'_brainmap.png')
+                pSig = []
+                queryDict = {'mousename': mousename, 'intervName': intervName}
+
+                # if (exclQueryLst is None) or all([not subset_dict(queryDict, d) for d in exclQueryLst]) :
+                rowsSession = pd_query(dfDataType, queryDict)
+
+                if len(rowsSession) > 0:
+                    for session, rowsTrial in rowsSession.groupby(['session']):
+
+                        if (performance is None) or dataDB.is_matching_performance(session, performance, mousename=mousename):
+                            dataThis = []
+                            for idx, row in rowsTrial.iterrows():
+                                dataThis += [ds.get_data(row['dset'])]
+
+                            nChannels = dataThis[0].shape[1]
+                            nTrials1 = dataThis[0].shape[0]
+                            nTrials2 = dataThis[1].shape[0]
+
+                            if (nTrials1 < minTrials) or (nTrials2 < minTrials):
+                                print(session, datatype, intervName, 'too few trials', nTrials1, nTrials2, ';; skipping')
+                            else:
+                                pSig += [[testFunc(dataThis[0][:, iCh], dataThis[1][:, iCh]) for iCh in range(nChannels)]]
+
+                    # pSigDict[mousename] = np.sum(pSig, axis=0)
+                    print(intervName, mousename, np.array(pSig).shape)
+
+                    pSigAvg = np.mean(pSig, axis=0)
+
+                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], pSigAvg,
+                                            vmin=limits[0], vmax=limits[1], cmap='jet',
+                                            haveColorBar=iInterv==nInterv-1)
+
+        plotSuffix = '_'.join([datatype, str(performance), metric])
+        fig.savefig('significance_brainplot_'+plotSuffix+'.png')
+        plt.close()
+
+
+def activity_brainplot_mousephase(dataDB, trialTypes, vmin=None, vmax=None, drop6=False, fontsize=20):
+    mice = sorted(dataDB.mice)
+    intervals = dataDB.get_interval_names()
+
+    for datatype in ['bn_trial', 'bn_session']:
+        for trialType in trialTypes:
+            fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals),
+                                   figsize=(4 * len(intervals), 4 * len(mice)), tight_layout=True)
+
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+                for iInterv, intervName in enumerate(intervals):
+                    ax[0][iInterv].set_title(intervName, fontsize=fontsize)
+                    if (not drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
+                        print(datatype, mousename, intervName, drop6)
+                        dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype, intervName=intervName,
+                                                        trialType=trialType)
+                        dataRSP = np.concatenate(dataLst, axis=0)
+                        dataP = np.mean(dataRSP, axis=(0,1))
+
+                        haveColorBar = iInterv == len(intervals)-1
+                        dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataP, vmin=vmin, vmax=vmax, cmap='jet',
+                                                haveColorBar=haveColorBar)
+
+            plt.savefig('activity_brainplot_mousephase_' + '_'.join([datatype, trialType]) + '.png')
             plt.close()
+
+
+def activity_brainplot_mousetrialtype(dataDB, trialTypes, vmin=None, vmax=None, drop6=False, fontsize=20):
+    mice = sorted(dataDB.mice)
+    intervals = dataDB.get_interval_names()
+
+    for datatype in ['bn_trial', 'bn_session']:
+        for intervName in intervals:
+            fig, ax = plt.subplots(nrows=len(mice), ncols=len(trialTypes),
+                                   figsize=(4 * len(trialTypes), 4 * len(mice)), tight_layout=True)
+
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+                if (not drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
+                    for iTT, trialType in enumerate(trialTypes):
+                        ax[0][iTT].set_title(trialType, fontsize=fontsize)
+                        print(datatype, mousename, intervName, drop6)
+                        dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
+                                                        intervName=intervName, trialType=trialType)
+                        dataRSP = np.concatenate(dataLst, axis=0)
+                        dataP = np.mean(dataRSP, axis=(0,1))
+
+                        haveColorBar = iTT == len(trialTypes)-1
+                        dataDB.plot_area_values(fig, ax[iMouse][iTT], dataP, vmin=vmin, vmax=vmax, cmap='jet',
+                                                haveColorBar=haveColorBar)
+
+            plt.savefig('activity_brainplot_mousetrialtype_' + '_'.join([datatype, intervName]) + '.png')
+            plt.close()
+
+
+def activity_brainplot_mousephase_subpre(dataDB, trialTypes, vmin=None, vmax=None, drop6=False, fontsize=20):
+    def _get_data_(dataDB, mousename, datatype, intervName, trialType):
+        dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype, intervName=intervName,
+                                        trialType=trialType)
+        dataRSP = np.concatenate(dataLst, axis=0)
+        return np.mean(dataRSP, axis=(0, 1))
+
+    datatype = 'bn_session'
+    mice = sorted(dataDB.mice)
+    intervals = dataDB.get_interval_names()
+
+    for trialType in trialTypes:
+        fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals),
+                               figsize=(4 * len(intervals), 4 * len(mice)), tight_layout=True)
+
+        for iMouse, mousename in enumerate(mice):
+            ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+
+            dataPPre = _get_data_(dataDB, mousename, datatype, 'PRE', trialType)
+
+            for iInterv, intervName in enumerate(intervals):
+                if intervName != 'PRE':
+                    ax[0][iInterv].set_title(intervName, fontsize=fontsize)
+                    if (not drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
+                        print(datatype, mousename, intervName, drop6)
+                        dataP = _get_data_(dataDB, mousename, datatype, intervName, trialType)
+
+                        dataPDelta = dataP - dataPPre
+
+                        haveColorBar = iInterv == len(intervals)-1
+                        dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataPDelta, vmin=vmin, vmax=vmax, cmap='jet',
+                                                haveColorBar=haveColorBar)
+
+        plt.savefig('activity_brainplot_mousephase_subpre_' + '_'.join([datatype, trialType]) + '.png')
+        plt.close()
+
+
+def activity_brainplot_mousephase_submouse(dataDB, trialTypes, vmin=None, vmax=None, drop6=False, fontsize=20):
+    def _get_data_(dataDB, mousename, datatype, intervName, trialType):
+        dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype, intervName=intervName,
+                                        trialType=trialType)
+        dataRSP = np.concatenate(dataLst, axis=0)
+        return np.mean(dataRSP, axis=(0, 1))
+
+    datatype = 'bn_session'
+    mice = sorted(dataDB.mice)
+    intervals = dataDB.get_interval_names()
+
+    for trialType in trialTypes:
+        fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals),
+                               figsize=(4 * len(intervals), 4 * len(mice)), tight_layout=True)
+
+        for iInterv, intervName in enumerate(intervals):
+            ax[0][iInterv].set_title(intervName, fontsize=fontsize)
+
+            rezDict = {}
+
+            for iMouse, mousename in enumerate(mice):
+                print(datatype, mousename, intervName, drop6)
+                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+
+                if (not drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
+                    rezDict[mousename] = _get_data_(dataDB, mousename, datatype, intervName, trialType)
+
+            dataPsub = np.mean(list(rezDict.values()), axis=0)
+            for iMouse, mousename in enumerate(mice):
+                if (not drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
+                    dataPDelta = rezDict[mousename] - dataPsub
+
+                    haveColorBar = iInterv == len(intervals)-1
+                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataPDelta, vmin=vmin, vmax=vmax, cmap='jet',
+                                            haveColorBar=haveColorBar)
+
+        plt.savefig('activity_brainplot_mousephase_submouse_' + '_'.join([datatype, trialType]) + '.png')
+        plt.close()
+
+
+def activity_brainplot_mouse_2DF(dbDict, intervNameMap, intervOrdMap, trialTypes, vmin, vmax, drop6=False, fontsize=20):
+    dbTmp = list(dbDict.values())[0]
+
+    mice = sorted(dbTmp.mice)
+    intervals = dbTmp.get_interval_names()
+
+    for datatype in ['bn_trial', 'bn_session']:
+        for trialType in trialTypes:
+            for intervName in intervals:
+                intervLabel = intervName if intervName not in intervNameMap else intervNameMap[intervName]
+
+                fig, ax = plt.subplots(nrows=2, ncols=len(mice),
+                                       figsize=(4 * len(mice), 4 * 2), tight_layout=True)
+
+                for iDB, (dbName, dataDB) in enumerate(dbDict.items()):
+                    ax[iDB][0].set_ylabel(dbName, fontsize=fontsize)
+                    intervEffName = intervName if (dbName, intervName) not in intervOrdMap else intervOrdMap[(dbName, intervName)]
+
+                    for iMouse, mousename in enumerate(mice):
+                        ax[0][iMouse].set_title(mousename, fontsize=fontsize)
+                        if (not drop6) or (intervEffName != 'REW') or (mousename != 'mou_6'):
+                            print(datatype, intervEffName, dbName, mousename, drop6)
+                            dataLst = dataDB.get_neuro_data({'mousename': mousename},
+                                                            datatype=datatype, intervName=intervEffName,
+                                                            trialType=trialType)
+                            dataRSP = np.concatenate(dataLst, axis=0)
+                            dataP = np.mean(dataRSP, axis=(0, 1))
+
+                            haveColorBar = iMouse == len(mice)-1
+                            dataDB.plot_area_values(fig, ax[iDB][iMouse], dataP, vmin=vmin, vmax=vmax, cmap='jet',
+                                                    haveColorBar=haveColorBar)
+
+                plt.savefig('activity_brainplot_mouse_2df_' + '_'.join([datatype, trialType, intervLabel]) + '.png')
+                plt.close()
+
+
+def classification_accuracy_brainplot_mousephase(dataDB, drop6=False, fontsize=20):
+    for datatype in ['bn_trial', 'bn_session']:
+        mice = sorted(dataDB.mice)
+        intervals = dataDB.get_interval_names()
+
+        fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals), figsize=(4 * len(intervals), 4 * len(mice)))
+
+        for iMouse, mousename in enumerate(mice):
+            ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+            for iInterv, intervName in enumerate(intervals):
+                ax[0][iInterv].set_title(intervName, fontsize=fontsize)
+                if (~drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
+                    print(datatype, mousename, intervName)
+
+                    dataLst = [
+                        dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
+                                              intervName=intervName, trialType=trialType)
+                        for trialType in ['Hit', 'FA', 'CR', 'Miss']
+                    ]
+
+                    # Stitch all sessions
+                    dataLst = [np.concatenate(data, axis=0) for data in dataLst]
+
+                    # Average out time
+                    dataLst = [np.mean(data, axis=1) for data in dataLst]
+
+                    # Split two textures
+                    dataT1 = np.concatenate([dataLst[0], dataLst[1]])
+                    dataT2 = np.concatenate([dataLst[2], dataLst[3]])
+
+                    svcAcc = [classification_accuracy_weighted(x[:, None], y[:, None]) for x, y in zip(dataT1.T, dataT2.T)]
+
+                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], svcAcc, vmin=0.5, vmax=1.0, cmap='jet')
+
+        plt.savefig('classification_accuracy_brainplot_mousephase_' + '_'.join([datatype]) + '.png')
+        plt.close()
+
+
+################################
+#  Consistency
+################################
 
 
 def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, performance=None, dropChannels=None,
@@ -229,62 +471,3 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTria
     fig.savefig('consistency_significant_activity_phase_bymouse_metric_' + str(performance) + '.png')
     plt.close()
 
-
-def plot_activity_bychannel(dataDB, trialType, vmin=None, vmax=None, drop6=False):
-    for datatype in ['bn_trial', 'bn_session']:
-        mice = sorted(dataDB.mice)
-        intervals = dataDB.get_interval_names()
-
-        fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals), figsize=(4 * len(intervals), 4 * len(mice)))
-
-        for iMouse, mousename in enumerate(mice):
-            ax[iMouse][0].set_ylabel(mousename)
-            for iInterv, intervName in enumerate(intervals):
-                ax[0][iInterv].set_xlabel(intervName)
-                if (~drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
-                    print(datatype, mousename, intervName)
-
-                    dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype, intervName=intervName, trialType=trialType)
-                    dataRSP = np.concatenate(dataLst, axis=0)
-                    dataP = np.mean(dataRSP, axis=(0,1))
-
-                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataP, vmin=vmin, vmax=vmax, cmap='jet')
-
-        plt.show()
-
-
-def plot_classification_accuracy_bychannel(dataDB, drop6=False):
-    for datatype in ['bn_trial', 'bn_session']:
-        mice = sorted(dataDB.mice)
-        intervals = dataDB.get_interval_names()
-
-        fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals), figsize=(4 * len(intervals), 4 * len(mice)))
-
-        for iMouse, mousename in enumerate(mice):
-            ax[iMouse][0].set_ylabel(mousename)
-            for iInterv, intervName in enumerate(intervals):
-                ax[0][iInterv].set_xlabel(intervName)
-                if (~drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
-                    print(datatype, mousename, intervName)
-
-                    dataLst = [
-                        dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
-                                              intervName=intervName, trialType=trialType)
-                        for trialType in ['Hit', 'FA', 'CR', 'Miss']
-                    ]
-
-                    # Stitch all sessions
-                    dataLst = [np.concatenate(data, axis=0) for data in dataLst]
-
-                    # Average out time
-                    dataLst = [np.mean(data, axis=1) for data in dataLst]
-
-                    # Split two textures
-                    dataT1 = np.concatenate([dataLst[0], dataLst[1]])
-                    dataT2 = np.concatenate([dataLst[2], dataLst[3]])
-
-                    svcAcc = [classification_accuracy_weighted(x[:, None], y[:, None]) for x, y in zip(dataT1.T, dataT2.T)]
-
-                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], svcAcc, vmin=0.5, vmax=1.0, cmap='jet')
-
-        plt.show()

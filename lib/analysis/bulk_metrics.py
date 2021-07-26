@@ -243,54 +243,63 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
         plotSuffix = '_'.join(key) if isinstance(key, list) else '_'.join([key])
         print(plotSuffix)
 
+        intervNamesData = list(set(dfDataType['intervName']))
+        trialTypesData =  list(set(dfDataType['trialType']))
+
+        intervNames = intervNamesData if intervNames is None else [i for i in intervNames if i in intervNamesData]
+        trialTypes = trialTypesData if trialTypes is None else [i for i in trialTypes if i in trialTypesData]
+
         #################################
         # Plot 1 ::: Mouse * TrialType
         #################################
 
-        df1 = pd_query(dfDataType, {'intervName' : 'AVG'})
-        if trialTypes is not None:
-            df1 = df1[df1['trialType'].isin(trialTypes)]
+        for intervName in intervNames:
+            df1 = pd_query(dfDataType, {'intervName' : intervName})
+            if trialTypes is not None:
+                df1 = df1[df1['trialType'].isin(trialTypes)]
 
-        dfData1 = pd.DataFrame(columns=['mousename', 'trialType', metricName])
+            dfData1 = pd.DataFrame(columns=['mousename', 'trialType', metricName])
 
-        for idx, row in df1.iterrows():
-            data = ds.get_data(row['dset'])
-            for d in data:
-                dfData1 = pd_append_row(dfData1, [row['mousename'], row['trialType'], d])
+            for idx, row in df1.iterrows():
+                data = ds.get_data(row['dset'])
+                for d in data:
+                    dfData1 = pd_append_row(dfData1, [row['mousename'], row['trialType'], d])
 
-        mice = sorted(set(dfData1['mousename']))
-        fig, ax = plt.subplots()
-        sns_barplot(ax, dfData1, "mousename", metricName, 'trialType', annotHue=True, xOrd=mice, hOrd=trialTypes)
-        # sns.barplot(ax=ax, x="mousename", y=metricName, hue='trialType', data=dfData1)
-        fig.savefig(metricName + '_barplot_trialtype_' + plotSuffix + '.png', dpi=300)
-        plt.close()
+            mice = sorted(set(dfData1['mousename']))
+            fig, ax = plt.subplots()
+            sns_barplot(ax, dfData1, "mousename", metricName, 'trialType', annotHue=True, xOrd=mice, hOrd=trialTypes)
+            # sns.barplot(ax=ax, x="mousename", y=metricName, hue='trialType', data=dfData1)
+            fig.savefig(metricName + '_barplot_trialtype_' + plotSuffix + '_' + intervName + '.png', dpi=300)
+            plt.close()
 
         #################################
         # Plot 2 ::: Mouse * Phase
         #################################
 
-        df2 = pd_query(dfDataType, {'trialType' : 'None'})
+        for trialType in ['None'] + trialTypes:
+            df2 = pd_query(dfDataType, {'trialType' : trialType})
 
-        # display(df2.head())
+            # display(df2.head())
 
-        df2 = df2[df2['intervName'] != 'AVG']
-        if key[0] == 'bn_trial':
-            df2 = df2[df2['intervName'] != 'PRE']
+            df2 = df2[df2['intervName'] != 'AVG']
+            if key[0] == 'bn_trial':
+                df2 = df2[df2['intervName'] != 'PRE']
 
-        dfData2 = pd.DataFrame(columns=['mousename', 'phase', metricName])
+            dfData2 = pd.DataFrame(columns=['mousename', 'phase', metricName])
 
-        for idx, row in df2.iterrows():
-            data = ds.get_data(row['dset'])
-            for d in data:
-                dfData2 = pd_append_row(dfData2, [row['mousename'], row['intervName'], d])
+            for idx, row in df2.iterrows():
+                data = ds.get_data(row['dset'])
+                for d in data:
+                    dfData2 = pd_append_row(dfData2, [row['mousename'], row['intervName'], d])
 
-        dfData2 = dfData2.sort_values('mousename')
+            dfData2 = dfData2.sort_values('mousename')
 
-        fig, ax = plt.subplots()
-        sns_barplot(ax, dfData2, "mousename", metricName, 'phase', annotHue=False, xOrd=mice, hOrd=intervNames)
-        # sns.barplot(ax=ax, x="mousename", y=metricName, hue='phase', data=dfData2)
-        fig.savefig(metricName + '_barplot_phase_' + plotSuffix + '.png', dpi=300)
-        plt.close()
+            mice = sorted(set(dfData2['mousename']))
+            fig, ax = plt.subplots()
+            sns_barplot(ax, dfData2, "mousename", metricName, 'phase', annotHue=False, xOrd=mice, hOrd=intervNames)
+            # sns.barplot(ax=ax, x="mousename", y=metricName, hue='phase', data=dfData2)
+            fig.savefig(metricName + '_barplot_phase_' + plotSuffix + '_' + trialType + '.png', dpi=300)
+            plt.close()
 
 
 # TODO: Replace nested for with pandas iterator. Make sure None arguments are not iterated over

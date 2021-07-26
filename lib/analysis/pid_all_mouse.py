@@ -14,8 +14,32 @@ from mesostat.stat.classification import confusion_matrix
 from mesostat.stat.clustering import cluster_dist_matrix_min, cluster_plot
 
 from mesostat.utils.pandas_helper import pd_query, pd_merge_multiple, pd_is_one_row, pd_append_row, pd_pivot
-from mesostat.visualization.mpl_barplot import barplot_stacked_indexed, barplot_labeled
+from mesostat.visualization.mpl_barplot import barplot_stacked_indexed, barplot_labeled, sns_barplot
 from mesostat.visualization.mpl_matrix import imshow
+
+
+def _vals_to_df(vals, valKey, keyDict):
+    df = pd.DataFrame()
+    df[valKey] = vals
+    for k, v in keyDict.items():
+        df[k] = v
+    return df
+
+
+def _mat_drop_channels(m, dropChannels=None):
+    if dropChannels is None:
+        return m
+    else:
+        mRez = np.copy(m)
+        for iCh in sorted(dropChannels)[::-1]:  # Sort in descending order, so index still correct after deletion
+            mRez = np.concatenate([mRez[:iCh], mRez[iCh + 1:]], axis=0)
+            mRez = np.concatenate([mRez[:, :iCh], mRez[:, iCh + 1:]], axis=1)
+        return mRez
+
+
+# Compute average PID over two out of three triplets
+def mean_vals_axis(idxs, vals2D, axis, nChannel):
+    return np.array([np.mean(vals2D[idxs[:, axis] == iCh]) for iCh in range(nChannel)])
 
 
 def pid_all_parse_key(key):
@@ -72,7 +96,7 @@ def read_computed_3D(h5fname, keyVals, pidType):
         valsU2 = vals[:, 1]
         labelsU1 = labels
         labelsU2 = labels[:, [1,0,2]]  # Swap sources, keep target
-        return np.concatenate(labelsU1, labelsU2, axis=0), np.concatenate(valsU1, valsU2, axis=0)
+        return np.concatenate([labelsU1, labelsU2], axis=0), np.concatenate([valsU1, valsU2], axis=0)
     elif pidType == 'red':
         return labels, vals[:, 2]
     elif pidType == 'syn':
@@ -87,25 +111,25 @@ def list_to_3Dmat(idxs, vals, nChannel):
     return rezMat
 
 
-def plot_cdf(h5fname, dfSummary):
+def plot_cdf(h5fname, dfSummary, fontsize=20):
     groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename'}))
     for key, dataMouse in dfSummary.groupby(groupLst):
         fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
 
         for iPID, pidType in enumerate(['unique', 'syn', 'red']):
-            for idx, row in dataMouse:
+            for idx, row in dataMouse.iterrows():
                 idxs, vals = read_computed_3D(h5fname, row['key'], pidType=pidType)
                 x, y = continuous_empirical_CDF(vals)
 
                 ax[iPID].plot(x, y, label=row['mousename'])
-                ax[iPID].set_title(pidType)
+                ax[iPID].set_title(pidType, fontsize=fontsize)
 
             ax[iPID].legend()
-        plt.savefig('pics/PID_cdf_'+'_'.join(key))
+        plt.savefig('pics/PID_cdf_'+'_'.join(key)+'.png')
         plt.close()
 
 
-def plot_violin_test(h5fname, h5fnameRand, dfSummary, dfSummaryRand):
+def plot_violin_test(h5fname, h5fnameRand, dfSummary, dfSummaryRand, fontsize=20):
     groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename'}))
     for key, dataMouse in dfSummary.groupby(groupLst):
         fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
@@ -114,7 +138,7 @@ def plot_violin_test(h5fname, h5fnameRand, dfSummary, dfSummaryRand):
 
             dfPID = pd.DataFrame()
 
-            for idx, row in dataMouse:
+            for idx, row in dataMouse.iterrows():
                 rowRand = pd_is_one_row(pd_query(dfSummaryRand, dict(row)))[1]
 
                 dfTrue = pd.DataFrame()
@@ -130,22 +154,52 @@ def plot_violin_test(h5fname, h5fnameRand, dfSummary, dfSummaryRand):
                 dfRand['type'] = 'Shuffle'
 
                 print('Test:', pidType, row['mousename'], 'pval =', mannwhitneyu(vals, valsRand, alternative='greater')[1])
+                dfPID = dfPID.append(dfTrue)
+                dfPID = dfPID.append(dfRand)
 
             sns.violinplot(ax=ax[iPID], x="mousename", y=pidType, hue="type", data=dfPID, scale='width', cut=0)
-            ax[iPID].set_title(pidType)
+            ax[iPID].set_yscale('log')
+            ax[iPID].set_title(pidType, fontsize=fontsize)
 
-        plt.savefig('pics/PID_violin_'+'_'.join(key))
+        plt.savefig('pics/PID_violin_'+'_'.join(key) + '.png')
         plt.close()
 
 
-def plot_top_triplets(dataDB, h5fname, dfSummary, nTop=20):
+def barplot_avg(dataDB, h5fname, dfSummary, paramName, paramVals, fontsize=20):
+    mice = sorted(dataDB.mice)
+
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', paramName}))
+    for groupVals, dataTmp in dfSummary.groupby(groupLst):
+        fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
+
+        for iPID, pidType in enumerate(['unique', 'syn', 'red']):
+            rezDF = pd.DataFrame()
+
+            for mousename, dataMouse in dataTmp.groupby(['mousename']):
+                for paramNameThis, dfParam in dataMouse.groupby([paramName]):
+                    idx, row = pd_is_one_row(dfParam)
+                    idxs, vals = read_computed_3D(h5fname, row['key'], pidType=pidType)
+
+                    keyDict = {'mousename': mousename, paramName: row[paramName], 'PID': pidType}
+                    dfTmp = _vals_to_df(vals, 'bits', keyDict)
+                    rezDF = rezDF.append(dfTmp)
+
+            sns_barplot(ax[iPID], rezDF, "mousename", 'bits', paramName, annotHue=False, xOrd=mice, hOrd=paramVals)
+            ax[iPID].set_title(pidType, fontsize=fontsize)
+
+        plt.savefig('pics/PID_barplot_' + paramName + '_' + '_'.join(groupVals) + '.png')
+        plt.close()
+
+
+def plot_top_triplets(dataDB, h5fname, dfSummary, nTop=20, fontsize=20):
     labelsCanon = list(dataDB.map_channel_labels_canon().values())
     pidTypes = ['unique', 'syn', 'red']
 
     groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename'}))
     for key, dataMouse in dfSummary.groupby(groupLst):
+        print(key)
 
-        fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
+        fig, ax = plt.subplots(ncols=3, figsize=(12, 4), tight_layout=True)
         for iPid, pidType in enumerate(pidTypes):
             ax[iPid].set_title(pidType)
 
@@ -166,39 +220,197 @@ def plot_top_triplets(dataDB, h5fname, dfSummary, nTop=20):
 
             # Plot stacked barplot with absolute numbers. Set ylim_max to total number of sessions
             barplot_stacked_indexed(ax[iPid], rezDict, xTickLabels=labels, xLabel='triplet',
-                                    yLabel='bits', title=pidType, iMax=None, rotation=90)
+                                    yLabel='bits', title=pidType, iMax=None, rotation=90, fontsize=fontsize)
 
-        fig.suptitle('_'.join(key))
-        plt.show()
+        plt.savefig('pid_triplets_barplot' + '_'.join(key) + '.png', dpi=300)
+        plt.close()
 
 
-def plot_top_singlets(dataDB, h5fname, dfSummary):
+def plot_top_singlets(dataDB, h5fname, dfSummary, fontsize=20):
     labelsCanon = list(dataDB.map_channel_labels_canon().values())
     nChannel = len(labelsCanon)
     pidTypes = ['unique', 'syn', 'red']
 
     groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename'}))
     for key, dataMouse in dfSummary.groupby(groupLst):
+        print(key)
 
-        fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
+        fig, ax = plt.subplots(ncols=3, figsize=(12, 4), tight_layout=True)
         for iPid, pidType in enumerate(pidTypes):
             ax[iPid].set_title(pidType)
 
             rezDict = {}
             for idx, row in dataMouse.iterrows():
                 idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
-                rezDict[row['mousename']] = [np.mean(vals[idxs[:, 2] == iCh]) for iCh in range(nChannel)]
+                rezDict[row['mousename']] = mean_vals_axis(idxs, vals, 2, nChannel)
 
             # Plot stacked barplot with absolute numbers. Set ylim_max to total number of sessions
             barplot_stacked_indexed(ax[iPid], rezDict, xTickLabels=labelsCanon, xLabel='singlet',
-                                    yLabel='bits', title=pidType, iMax=None, rotation=90)
+                                    yLabel='bits', title=pidType, iMax=None, rotation=90, fontsize=fontsize)
 
-        fig.suptitle('_'.join(key))
-        plt.show()
+        plt.savefig('pid_singlets_barplot' + '_'.join(key) + '.png', dpi=300)
+        plt.close()
+
+
+def plot_singlets_brainplot(dataDB, h5fname, dfSummary, paramKey, paramNames, fontsize=20):
+    pidTypes = ['unique', 'syn', 'red']
+    labelsCanon = list(dataDB.map_channel_labels_canon().values())
+    nChannel = len(labelsCanon)
+    nParam = len(paramNames)
+    mice = sorted(dataDB.mice)
+    nMice = len(mice)
+
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', paramKey}))
+    for key, dataTmp in dfSummary.groupby(groupLst):
+        for pidType in pidTypes:
+            vmax = 1.0 if pidType == 'red' else 0.25
+
+            fig, ax = plt.subplots(nrows=nMice, ncols=nParam, figsize=(4 * nParam, 4 * nMice))
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse, 0].set_ylabel(mousename, fontsize=fontsize)
+
+                for iParam, paramName in enumerate(paramNames):
+                    ax[0, iParam].set_title(paramName, fontsize=fontsize)
+
+                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, paramKey: paramName}))
+                    if row is not None:
+                        idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
+                        valsMeanTrg = mean_vals_axis(idxs, vals, 2, nChannel)
+
+                        haveColorBar = iParam == nParam - 1
+                        dataDB.plot_area_values(fig, ax[iMouse][iParam], valsMeanTrg,
+                                                vmin=0, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
+
+            plotSuffix = '_'.join(list(key) + [pidType])
+            plt.savefig('pid_brainplot_signlets_mouse' + paramKey + '_' + plotSuffix + '.png')
+            plt.close()
+
+
+def plot_singlets_brainplot_mousephase_subpre(dataDB, h5fname, dfSummary, fontsize=20):
+    pidTypes = ['unique', 'syn', 'red']
+    labelsCanon = list(dataDB.map_channel_labels_canon().values())
+    nChannel = len(labelsCanon)
+    intervNames = dataDB.get_interval_names()
+    nInterv = len(intervNames)
+    mice = sorted(dataDB.mice)
+    nMice = len(mice)
+
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'intervName'}))
+    for key, dataTmp in dfSummary.groupby(groupLst):
+        for pidType in pidTypes:
+            vmax = 1.0 if pidType == 'red' else 0.25
+
+            fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4*nInterv, 4*nMice))
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse, 0].set_ylabel(mousename, fontsize=fontsize)
+
+                rezDict = {}
+                for iInterv, intervName in enumerate(intervNames):
+                    ax[0, iInterv].set_title(intervName, fontsize=fontsize)
+
+                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'intervName': intervName}))
+                    if row is not None:
+                        idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
+                        rezDict[intervName] = mean_vals_axis(idxs, vals, 2, nChannel)
+
+                for iInterv, intervName in enumerate(intervNames):
+                    if intervName != 'PRE':
+                        haveColorBar = iInterv == nInterv - 1
+                        dataDB.plot_area_values(fig, ax[iMouse][iInterv], rezDict[intervName] - rezDict['PRE'],
+                                                vmin=-vmax, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
+
+            plotSuffix = '_'.join(list(key) + [pidType])
+            plt.savefig('pid_brainplot_signlets_mousephase_subpre_' + '_' + plotSuffix + '.png')
+            plt.close()
+
+
+def plot_singlets_brainplot_mousephase_submouse(dataDB, h5fname, dfSummary, fontsize=20):
+    pidTypes = ['unique', 'syn', 'red']
+    labelsCanon = list(dataDB.map_channel_labels_canon().values())
+    nChannel = len(labelsCanon)
+    intervNames = dataDB.get_interval_names()
+    nInterv = len(intervNames)
+    mice = sorted(dataDB.mice)
+    nMice = len(mice)
+
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'intervName'}))
+    for key, dataTmp in dfSummary.groupby(groupLst):
+        for pidType in pidTypes:
+            vmax = 1.0 if pidType == 'red' else 0.25
+
+            fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4*nInterv, 4*nMice))
+            for iInterv, intervName in enumerate(intervNames):
+                ax[0, iInterv].set_title(intervName, fontsize=fontsize)
+
+                rezDict = {}
+                for iMouse, mousename in enumerate(mice):
+                    ax[iMouse, 0].set_ylabel(mousename, fontsize=fontsize)
+
+                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'intervName': intervName}))
+                    if row is not None:
+                        idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
+                        rezDict[mousename] = mean_vals_axis(idxs, vals, 2, nChannel)
+
+                rezMean = np.mean(list(rezDict.values()), axis=0)
+                for iMouse, mousename in enumerate(mice):
+                    haveColorBar = iMouse == nMice - 1
+                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], rezDict[intervName] - rezMean,
+                                            vmin=-vmax, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
+
+            plotSuffix = '_'.join(list(key) + [pidType])
+            plt.savefig('pid_brainplot_signlets_mousephase_submouse_' + '_' + plotSuffix + '.png')
+            plt.close()
+
+
+def plot_singlets_barplot_2DF(dataDB1, dataDB2, labelDB1, labelDB2, h5fname1, h5fname2, dfSummary1, dfSummary2,
+                              intervNameMap, intervOrdMap, fontsize=20):
+    pidTypes = ['unique', 'syn', 'red']
+    labelsCanon = list(dataDB1.map_channel_labels_canon().values())
+    nChannel = len(labelsCanon)
+    mice = sorted(dataDB1.mice)
+    nMice = len(mice)
+
+    groupLst1 = sorted(list(set(dfSummary1.columns) - {'key', 'mousename'}))
+    for key, dataTmp in dfSummary1.groupby(groupLst1):
+        for iPid, pidType in enumerate(pidTypes):
+            fig, ax = plt.subplots(nrows=2, ncols=nMice, figsize=(4 * nMice, 8))
+            ax[0, 0].set_ylabel(labelDB1)
+            ax[1, 0].set_ylabel(labelDB2)
+
+            plotSuffix = '_'.join([pidType] + list(key))
+            print(plotSuffix)
+
+            for idx1, row1 in dataTmp.iterrows():
+                iMouse = mice.index(row1['mousename'])
+                ax[0, iMouse].set_title(row1['mousename'], fontsize=fontsize)
+
+                # Replace interval name with analog from the other dataset
+                queryDict2 = dict(row1)
+                intervName2 = queryDict2['phase']
+                intervName2 = intervName2 if (labelDB2, intervName2) not in intervOrdMap else intervOrdMap[(labelDB2, intervName2)]
+                queryDict2['phase'] = intervName2
+
+                idx2, row2 = pd_is_one_row(pd_query(dfSummary2, queryDict2))
+                assert row2 is not None
+
+                idxs1, vals1 = read_computed_3D(h5fname1, row1['key'], pidType)
+                idxs2, vals2 = read_computed_3D(h5fname2, row2['key'], pidType)
+                valsMeanTrg1 = mean_vals_axis(idxs1, vals1, 2, nChannel)
+                valsMeanTrg2 = mean_vals_axis(idxs2, vals2, 2, nChannel)
+
+                haveColorBar = iMouse == nMice - 1
+                vmax = 1.0 if pidType == 'red' else 0.25
+                dataDB1.plot_area_values(fig, ax[0][iMouse], valsMeanTrg1,
+                                         vmin=0, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
+                dataDB2.plot_area_values(fig, ax[1][iMouse], valsMeanTrg2,
+                                         vmin=0, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
+
+        plt.savefig('pid_brainplot_signlets_bymodality_' + plotSuffix + '.png')
+        plt.close()
 
 
 # FIXME: Averaging is not aware of dropped channels
-def plot_unique_top_pairs(dataDB, h5fname, dfSummary, nTop=20):
+def plot_unique_top_pairs(dataDB, h5fname, dfSummary, nTop=20, fontsize=20):
     labelsCanon = list(dataDB.map_channel_labels_canon().values())
     nChannel = len(labelsCanon)
     mice = dataDB.mice
@@ -209,7 +421,7 @@ def plot_unique_top_pairs(dataDB, h5fname, dfSummary, nTop=20):
 
         fig, ax = plt.subplots(nrows=2, ncols=len(mice), figsize=(6*len(mice), 8))
         for iPid, pidType in enumerate(pidTypes):
-            ax[iPid].set_title(pidType)
+            ax[iPid].set_title(pidType, fontsize=fontsize)
 
             for iMouse, mousename in enumerate(mice):
                 row = pd_is_one_row(pd_query(dataMouse, {'mousename' : mousename}))[1]
@@ -247,62 +459,172 @@ def plot_unique_top_pairs(dataDB, h5fname, dfSummary, nTop=20):
 
 # FIXME: Averaging is not aware of dropped channels
 # TODO: Impl mouse-specific
-def plot_2D_avg(dataDB, h5fname, dfSummary, avgAxis=2):
+def plot_2D_avg(dataDB, h5fname, dfSummary, paramKey, paramNames, dropChannels=None, avgAxis=2, fontsize=20):
     labelsCanon = list(dataDB.map_channel_labels_canon().values())
     nChannel = len(labelsCanon)
     pidTypes = ['unique', 'syn', 'red']
 
-    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename'}))
-    for key, dataMouse in dfSummary.groupby(groupLst):
+    mice = sorted(dataDB.mice)
+    nMice = len(mice)
+    nParam = len(paramNames)
 
-        fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
-        for iPid, pidType in enumerate(pidTypes):
-            Mrez2D = np.zeros((nChannel, nChannel))
-            for idx, row in dataMouse.iterrows():
-                idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
-                Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
-                Mrez2D += np.nansum(Mrez3D, axis=avgAxis) / (nChannel - 2)  # Target can't be either of the sources
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'intervName'}))
+    for key, dataTmp in dfSummary.groupby(groupLst):
+        for pidType in pidTypes:
+            fig, ax = plt.subplots(nrows=nMice, ncols=nParam, figsize=(4*nParam, 4*nMice))
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
-            # Average over mice
-            nMice = len(dataMouse)
-            Mrez2D /= nMice
+                for iParam, paramName in enumerate(paramNames):
+                    ax[0][iParam].set_ylabel(paramName, fontsize=fontsize)
 
-            imshow(fig, ax[iPid], Mrez2D, title=pidType, haveColorBar=True, cmap='jet')
+                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, paramKey: paramName}))
+                    if row is not None:
+                        idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
+                        Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
+                        Mrez2D = np.nansum(Mrez3D, axis=avgAxis) / (nChannel - 2)  # Target can't be either of the sources
+                        Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
 
-        fig.suptitle('_'.join(key))
-        plt.show()
+                        if pidType != 'unique':
+                            Mrez2D += Mrez2D.T
+
+                        imshow(fig, ax[iMouse][iParam], Mrez2D, cmap='jet',
+                               haveColorBar=iParam == nParam - 1)
+
+            pltSuffix = '_'.join([paramKey] + list(key) + [pidType])
+            plt.savefig('pid_2D_avg_mouse' + pltSuffix + '.png')
+            plt.close()
 
 
 # FIXME: Averaging is not aware of dropped channels
 # TODO: Impl mouse-specific
-def plot_2D_bytarget(dataDB, h5fname, dfSummary, trgChName):
-    labels = dataDB.get_channel_labels()
-    nChannel = len(labels)
-    trgIdx = labels.index(trgChName)
+def plot_2D_target(dataDB, h5fname, dfSummary, trgChName, paramKey, paramNames, dropChannels=None, fontsize=20):
+    labelsCanon = list(dataDB.map_channel_labels_canon().values())
+    nChannel = len(labelsCanon)
+    trgIdx = labelsCanon.index(trgChName)
     pidTypes = ['unique', 'syn', 'red']
 
-    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename'}))
-    for key, dataMouse in dfSummary.groupby(groupLst):
+    mice = sorted(dataDB.mice)
+    nMice = len(mice)
+    nParam = len(paramNames)
 
-        fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
-        for iPid, pidType in enumerate(pidTypes):
-            Mrez2D = np.zeros((nChannel, nChannel))
-            for idx, row in dataMouse.iterrows():
-                idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
-                Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
-                Mrez2D += Mrez3D[:, :, trgIdx]
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', paramKey}))
+    for key, dataTmp in dfSummary.groupby(groupLst):
+        for pidType in pidTypes:
+            fig, ax = plt.subplots(nrows=nMice, ncols=nParam, figsize=(4*nParam, 4*nMice))
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
-            # Average over mice
-            nMice = len(dataMouse)
-            Mrez2D /= nMice
+                for iParam, paramName in enumerate(paramNames):
+                    ax[0][iParam].set_ylabel(paramName, fontsize=fontsize)
 
-            imshow(fig, ax[iPid], Mrez2D, title=pidType, haveColorBar=True, cmap='jet')
+                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, paramKey: paramName}))
+                    if row is not None:
+                        idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
+                        Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
+                        Mrez2D = Mrez3D[:, :, trgIdx]
+                        Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
 
-        fig.suptitle('_'.join(key))
-        plt.show()
+                        if pidType != 'unique':
+                            Mrez2D += Mrez2D.T
+
+                        imshow(fig, ax[iMouse][iParam], Mrez2D, cmap='jet',
+                               haveColorBar=iParam == nParam - 1)
+
+            pltSuffix = '_'.join([paramKey, trgChName] + list(key) + [pidType])
+            plt.savefig('pid_2D_bytrg_mouse' + pltSuffix + '.png')
+            plt.close()
 
 
-def plot_2D_bytarget_synergy_cluster(dataDB, h5fname, dfSummary, trgChName, clusterParam=1.0, dropWeakChannelThr=None):
+def plot_2D_target_mousephase_subpre(dataDB, h5fname, dfSummary, trgChName, dropChannels=None, fontsize=20):
+    labelsCanon = list(dataDB.map_channel_labels_canon().values())
+    nChannel = len(labelsCanon)
+    trgIdx = labelsCanon.index(trgChName)
+    pidTypes = ['unique', 'syn', 'red']
+
+    intervNames = dataDB.get_interval_names()
+    mice = sorted(dataDB.mice)
+    nMice = len(mice)
+    nInterv = len(intervNames)
+
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'intervName'}))
+    for key, dataTmp in dfSummary.groupby(groupLst):
+        for pidType in pidTypes:
+            fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4*nInterv, 4*nMice))
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+                rezDict = {}
+                for iInterv, intervName in enumerate(intervNames):
+                    ax[0][iInterv].set_ylabel(intervName, fontsize=fontsize)
+
+                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'intervName': intervName}))
+                    if row is not None:
+                        idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
+                        Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
+                        Mrez2D = Mrez3D[:, :, trgIdx]
+                        Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
+
+                        if pidType != 'unique':
+                            Mrez2D += Mrez2D.T
+
+                        rezDict[intervName] = Mrez2D
+
+                for iInterv, intervName in enumerate(intervNames):
+                    if intervName != 'PRE':
+                        imshow(fig, ax[iMouse][iInterv], rezDict[intervName] - rezDict['PRE'],
+                               cmap='jet', haveColorBar=iInterv == nInterv - 1)
+
+            pltSuffix = '_'.join([trgChName] + list(key) + [pidType])
+            plt.savefig('pid_2D_bytrg_mousephase_subpre_' + pltSuffix + '.png')
+            plt.close()
+
+
+def plot_2D_target_mousephase_submouse(dataDB, h5fname, dfSummary, trgChName, dropChannels=None, fontsize=20):
+    labelsCanon = list(dataDB.map_channel_labels_canon().values())
+    nChannel = len(labelsCanon)
+    trgIdx = labelsCanon.index(trgChName)
+    pidTypes = ['unique', 'syn', 'red']
+
+    intervNames = dataDB.get_interval_names()
+    mice = sorted(dataDB.mice)
+    nMice = len(mice)
+    nInterv = len(intervNames)
+
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'intervName'}))
+    for key, dataTmp in dfSummary.groupby(groupLst):
+        for pidType in pidTypes:
+            fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4*nInterv, 4*nMice))
+            for iInterv, intervName in enumerate(intervNames):
+                ax[0][iInterv].set_ylabel(intervName, fontsize=fontsize)
+
+                rezDict = {}
+                for iMouse, mousename in enumerate(mice):
+                    ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+
+                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'intervName': intervName}))
+                    if row is not None:
+                        idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
+                        Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
+                        Mrez2D = Mrez3D[:, :, trgIdx]
+                        Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
+
+                        if pidType != 'unique':
+                            Mrez2D += Mrez2D.T
+
+                        rezDict[mousename] = Mrez2D
+
+                rezAvg = np.mean(list(rezDict.values()), axis=0)
+                for iMouse, mousename in enumerate(mice):
+                    imshow(fig, ax[iMouse][iInterv], rezDict[mousename] - rezAvg,
+                           cmap='jet', haveColorBar=iInterv == nInterv - 1)
+
+            pltSuffix = '_'.join([trgChName] + list(key) + [pidType])
+            plt.savefig('pid_2D_bytrg_mousephase_submouse_' + pltSuffix + '.png')
+            plt.close()
+
+
+def plot_2D_bytarget_synergy_cluster(dataDB, h5fname, dfSummary, trgChName,
+                                     clusterParam=1.0, dropWeakChannelThr=None, fontsize=20):
     labels = dataDB.get_channel_labels()
     nChannel = len(labels)
     trgIdx = labels.index(trgChName)
@@ -326,7 +648,7 @@ def plot_2D_bytarget_synergy_cluster(dataDB, h5fname, dfSummary, trgChName, clus
             else:
                 Mrez2DEff = Mrez2D
 
-            imshow(fig, ax[0, iMouse], Mrez2D, title=row['mousename'], haveColorBar=True, cmap='jet')
+            imshow(fig, ax[0, iMouse], Mrez2D, title=row['mousename'], haveColorBar=True, cmap='jet', fontsize=fontsize)
             clusters = cluster_dist_matrix_min(Mrez2DEff, clusterParam, method='OPTICS')
             print(clusters)
 
