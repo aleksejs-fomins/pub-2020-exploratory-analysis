@@ -130,11 +130,10 @@ def pid_multiprocess_mouse_trgsweep(dataDB, mc, h5outname, argSweepDict, exclQue
                 if _h5_lock_test_available(h5outname, keyDataMouse):
 
                     # Sources are all channels - target - dropped
-                    srcLabels = channelLabels.copy()
-                    del srcLabels[iTrg]
+                    exclChannels = [iTrg]
                     if dropChannels is not None:
-                        for iCh in dropChannels:
-                            del srcLabels[iCh]
+                        exclChannels += dropChannels
+                    srcLabels = [ch for iCh, ch in enumerate(channelLabels) if iCh not in exclChannels]
 
                     kwargs = dict(row)
                     del kwargs['mousename']
