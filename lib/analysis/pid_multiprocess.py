@@ -66,7 +66,7 @@ def pid_multiprocess_session(dataDB, mc, h5outname, argSweepDict, exclQueryLst, 
             if _h5_lock_test_available(h5outname, keyDataSession):
                 kwargs = dict(row)
                 del kwargs['mousename']
-                kwargs = {k if k != 'None' else None: v for k, v in kwargs.items()}
+                kwargs = {k: v if v != 'None' else None for k, v in kwargs.items()}
 
                 # Get data
                 dataLst = dataDB.get_neuro_data({'session': session}, zscoreDim=None, **kwargs)
@@ -97,7 +97,7 @@ def pid_multiprocess_mouse(dataDB, mc, h5outname, argSweepDict, exclQueryLst, di
         if _h5_lock_test_available(h5outname, keyDataMouse):
             kwargs = dict(row)
             del kwargs['mousename']
-            kwargs = {k if k != 'None' else None: v for k, v in kwargs.items()}
+            kwargs = {k: v if v != 'None' else None for k, v in kwargs.items()}
 
             # Get data
             dataLst = dataDB.get_neuro_data({'mousename': row['mousename']}, zscoreDim=None, **kwargs)
@@ -139,7 +139,7 @@ def pid_multiprocess_mouse_trgsweep(dataDB, mc, h5outname, argSweepDict, exclQue
 
                     kwargs = dict(row)
                     del kwargs['mousename']
-                    kwargs = {k if k != 'None' else None: v for k,v in kwargs.items()}
+                    kwargs = {k: v if v != 'None' else None for k,v in kwargs.items()}
 
                     # Get data
                     dataLst = [_get_data_concatendated_sessions(dataDB, haveDelay, row['mousename'],
