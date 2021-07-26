@@ -97,6 +97,8 @@ def _pid_prepare_data_time(dataLst, nDropPCA=None, nBin=4):
     if nDropPCA is not None:
         dataSP = drop_PCA(dataSP, nDropPCA)
 
+    print(dataSP.shape)
+
     dataBin2D = bin_data(dataSP, nBin, axis=1)  # Bin data separately for each channel
     dataBin3D = dataBin2D.reshape(dataRSP.shape)
 
