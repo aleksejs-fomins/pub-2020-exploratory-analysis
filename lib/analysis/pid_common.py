@@ -94,6 +94,8 @@ def _pid_prepare_data_time(dataLst, nDropPCA=None, nBin=4):
     dataRSP = np.concatenate(dataLst, axis=0)  # Concatenate trials and sessions
     dataSP = numpy_merge_dimensions(dataRSP, 0, 2)
 
+    print(dataRSP.shape, dataSP.shape)
+
     if nDropPCA is not None:
         dataSP = drop_PCA(dataSP, nDropPCA)
 
