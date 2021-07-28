@@ -51,7 +51,7 @@ def _pid_all(mc, data, dimOrdSrc, dimOrdTrg, metricName, settingsEstimator, dim=
 
 # Loop over targets in target list
 def _pid_specific(mc, data, dimOrdSrc, dimOrdTrg, labelsAll, labelsSrc, labelsTrg, metricName, settingsEstimator,
-                  dim=3, shuffle=False):
+                  dim=3, shuffle=False, labelsAsText=False):
     # Set data
     mc.set_data(data, dimOrdSrc)
 
@@ -82,8 +82,12 @@ def _pid_specific(mc, data, dimOrdSrc, dimOrdTrg, labelsAll, labelsSrc, labelsTr
     labelsRezLst = []
     for iSrcPair, iSrcTuple in enumerate(sourceIdxCombinations):
         for iTrg, labelTrg in enumerate(labelsTrg):
-            labelsRezLst += [[labelsAll[iSrc] for iSrc in iSrcTuple] + [labelTrg]]
             rezLst += [rez[iSrcPair][iTrg]]
+
+            if labelsAsText:
+                labelsRezLst += [[labelsAll[iSrc] for iSrc in iSrcTuple] + [labelTrg]]
+            else:
+                labelsRezLst += [iSrcTuple + (targetIdxs[iTrg],)]
 
     return labelsRezLst, np.array(rezLst)
 
@@ -130,7 +134,7 @@ def _pid_prepare_data_time(dataLst, nDropPCA=None, nBin=4):
 
 # Calculate 3D PID with two sources and 1 target. If more than one target is provided,
 def pid(dataLst, mc, labelsAll=None, labelsSrc=None, labelsTrg=None, dropChannels=None, nBin=4, nDropPCA=None,
-        verbose=True, permuteTarget=False, metric='BivariatePID', dim=3, timeSweep=False):
+        verbose=True, permuteTarget=False, metric='BivariatePID', dim=3, timeSweep=False, labelsAsText=False):
     '''
     :param dataLst:     List of data over sessions, each dataset is of shape 'rsp'
     :param mc:          MetricCalculator
@@ -180,6 +184,6 @@ def pid(dataLst, mc, labelsAll=None, labelsSrc=None, labelsTrg=None, dropChannel
                         dim=dim, dropChannels=dropChannels, shuffle=permuteTarget)
     elif havePIDSpecific:
         return _pid_specific(mc, dataBin, dimOrdSrc, dimOrdTrg, labelsAll, labelsSrc, labelsTrg, metricName,
-                             settingsEstimator, dim=dim, shuffle=permuteTarget)
+                             settingsEstimator, dim=dim, shuffle=permuteTarget, labelsAsText=labelsAsText)
     else:
         raise ValueError('Must provide both source and target indices or neither')

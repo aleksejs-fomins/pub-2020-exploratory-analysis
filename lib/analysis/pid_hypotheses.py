@@ -30,7 +30,8 @@ def hypotheses_calc_pid(dataDB, mc, hDict, h5outname, datatypes=None, nDropPCA=N
                 dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
                                                 zscoreDim=None, intervName=intervName, **kwargs)
 
-                rezLabels, rezValues = pid(dataLst, mc, channelNames, sources, targets, nBin=4, nDropPCA=nDropPCA)
+                rezLabels, rezValues = pid(dataLst, mc, channelNames, sources, targets, nBin=4, nDropPCA=nDropPCA,
+                                           labelsAsText=True)
 
                 with h5py.File(h5outname, 'a') as h5f:
                     fieldNameLabels = '_'.join(['PID_labels', hLabel, mousename, datatype])
