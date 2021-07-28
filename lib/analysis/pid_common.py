@@ -6,8 +6,27 @@ from mesostat.utils.signals.filter import drop_PCA
 import mesostat.utils.iterators.matrix as matiter
 
 
+# We want the sweep over source and target channels to be on the first place
+# But the method returns the sweep over dataset dimensions on the first place
+def _transpose_result(rez, dimOrdTrg):
+    dimMove = len(dimOrdTrg)
+    if dimMove == 0:
+        return rez
+    else:
+        dimRez = len(rez.shape)
+        shapeNew = list(range(dimRez))
+        shapeNew = shapeNew[dimMove:dimMove+2] + shapeNew[:dimMove] + shapeNew[dimMove+2:]
+        return rez.transpose(shapeNew)
+
+
 # Loop over all possible targets excluding sources
-def _pid_all(mc, nChannel, dimOrdTrg, metricName, settingsEstimator, dim=3, dropChannels=None, shuffle=False):
+def _pid_all(mc, data, dimOrdSrc, dimOrdTrg, metricName, settingsEstimator, dim=3, dropChannels=None, shuffle=False):
+    # Set data
+    mc.set_data(data, dimOrdSrc)
+
+    # Find number of channels
+    idxOrdChannel = dimOrdSrc.index('p')
+    nChannel = data.shape[idxOrdChannel]
 
     # Find combinations of all source pairs
     if dim == 3:
@@ -25,13 +44,17 @@ def _pid_all(mc, nChannel, dimOrdTrg, metricName, settingsEstimator, dim=3, drop
                       metricSettings={'settings_estimator': settingsEstimator, 'shuffle': shuffle},
                       sweepSettings={'channels': channelIdxCombinations})
 
+    rez = _transpose_result(rez, dimOrdTrg)
+
     return channelIdxCombinations, rez
-    # 3D result: (triplets, pidType, statType);;  statType == {'p', 'effSize', 'muTrue', 'muRand'}
-    # return np.array([percentile_twosided(rezThis, fRand, settings={"haveEffectSize": True, "haveMeans": True})[1:].T for rezThis in rez])
 
 
 # Loop over targets in target list
-def _pid_specific(mc, labelsAll, labelsSrc, labelsTrg, dimOrdTrg, metricName, settingsEstimator, dim=3, shuffle=False):
+def _pid_specific(mc, data, dimOrdSrc, dimOrdTrg, labelsAll, labelsSrc, labelsTrg, metricName, settingsEstimator,
+                  dim=3, shuffle=False):
+    # Set data
+    mc.set_data(data, dimOrdSrc)
+
     # Find indices of channel labels
     sourceIdxs = [labelsAll.index(s) for s in labelsSrc]
     targetIdxs = [labelsAll.index(t) for t in labelsTrg]
@@ -52,6 +75,8 @@ def _pid_specific(mc, labelsAll, labelsSrc, labelsTrg, dimOrdTrg, metricName, se
 
     if (nCombinations == 1) and (nTrg == 1):
         rez = [[rez]]  # Add extra sweep brackets accidentally removed by mesostat
+    else:
+        rez = _transpose_result(rez, dimOrdTrg)
 
     rezLst = []
     labelsRezLst = []
@@ -86,7 +111,7 @@ def _pid_prepare_data_avg(dataLst, nDropPCA=None, nBin=4):
         dataRP = drop_PCA(dataRP, nDropPCA)
 
     dataBin = bin_data(dataRP, nBin, axis=1)  # Bin data separately for each channel
-    return dataBin, dataBin.shape[1]
+    return dataBin
 
 
 def _pid_prepare_data_time(dataLst, nDropPCA=None, nBin=4):
@@ -94,17 +119,13 @@ def _pid_prepare_data_time(dataLst, nDropPCA=None, nBin=4):
     dataRSP = np.concatenate(dataLst, axis=0)  # Concatenate trials and sessions
     dataSP = numpy_merge_dimensions(dataRSP, 0, 2)
 
-    print('a', dataRSP.shape, dataSP.shape)
-
     if nDropPCA is not None:
         dataSP = drop_PCA(dataSP, nDropPCA)
-
-    print('b', dataRSP.shape, dataSP.shape)
 
     dataBin2D = bin_data(dataSP, nBin, axis=1)  # Bin data separately for each channel
     dataBin3D = dataBin2D.reshape(dataRSP.shape)
 
-    return dataBin3D, dataBin3D.shape[2]
+    return dataBin3D
 
 
 # Calculate 3D PID with two sources and 1 target. If more than one target is provided,
@@ -129,7 +150,7 @@ def pid(dataLst, mc, labelsAll=None, labelsSrc=None, labelsTrg=None, dropChannel
 
     # Prepare data
     if timeSweep:
-        dataBin, nChannel = _pid_prepare_data_time(dataLst, nDropPCA=nDropPCA, nBin=nBin)
+        dataBin = _pid_prepare_data_time(dataLst, nDropPCA=nDropPCA, nBin=nBin)
 
         if verbose:
             print("Time-sweep analysis with shape:", dataBin.shape)
@@ -137,16 +158,13 @@ def pid(dataLst, mc, labelsAll=None, labelsSrc=None, labelsTrg=None, dropChannel
         dimOrdSrc = 'rsp'
         dimOrdTrg = 's'
     else:
-        dataBin, nChannel = _pid_prepare_data_avg(dataLst, nDropPCA=nDropPCA, nBin=nBin)
+        dataBin = _pid_prepare_data_avg(dataLst, nDropPCA=nDropPCA, nBin=nBin)
 
         if verbose:
             print("Single-point analysis with shape:", dataBin.shape)
 
         dimOrdSrc = 'rp'
         dimOrdTrg = ''
-
-    # Set data
-    mc.set_data(dataBin, dimOrdSrc)
 
     # Estimator settings
     settingsEstimator = _pid_estimator_settings(metric, dim=dim)
@@ -158,10 +176,10 @@ def pid(dataLst, mc, labelsAll=None, labelsSrc=None, labelsTrg=None, dropChannel
     havePIDSpecific = (labelsSrc is not None) and (labelsTrg is not None) and (labelsAll is not None) and (dropChannels is None)
 
     if havePIDAll:
-        return _pid_all(mc, nChannel, dimOrdTrg, metricName, settingsEstimator,
+        return _pid_all(mc, dataBin, dimOrdSrc, dimOrdTrg, metricName, settingsEstimator,
                         dim=dim, dropChannels=dropChannels, shuffle=permuteTarget)
     elif havePIDSpecific:
-        return _pid_specific(mc, labelsAll, labelsSrc, labelsTrg, dimOrdTrg, metricName, settingsEstimator,
-                             dim=dim, shuffle=permuteTarget)
+        return _pid_specific(mc, dataBin, dimOrdSrc, dimOrdTrg, labelsAll, labelsSrc, labelsTrg, metricName,
+                             settingsEstimator, dim=dim, shuffle=permuteTarget)
     else:
         raise ValueError('Must provide both source and target indices or neither')

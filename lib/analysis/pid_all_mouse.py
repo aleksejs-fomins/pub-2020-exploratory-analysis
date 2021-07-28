@@ -9,7 +9,7 @@ from sklearn.metrics import cohen_kappa_score
 from IPython.display import display
 
 from mesostat.stat.stat import continuous_empirical_CDF
-from mesostat.stat.connectomics import tril_1D, offdiag_1D
+from mesostat.stat.connectomics import offdiag_1D, matrix_copy_triangle_symmetric
 from mesostat.stat.classification import confusion_matrix
 from mesostat.stat.clustering import cluster_dist_matrix_min, cluster_plot
 
@@ -295,8 +295,10 @@ def plot_singlets_brainplot_mousephase_subpre(dataDB, h5fname, dfSummary, fontsi
     mice = sorted(dataDB.mice)
     nMice = len(mice)
 
-    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'intervName'}))
-    for key, dataTmp in dfSummary.groupby(groupLst):
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'phase'}))
+    dfBnSession = pd_query(dfSummary, {'datatype': 'bn_session'})
+
+    for key, dataTmp in dfBnSession.groupby(groupLst):
         for pidType in pidTypes:
             vmax = 1.0 if pidType == 'red' else 0.25
 
@@ -308,13 +310,13 @@ def plot_singlets_brainplot_mousephase_subpre(dataDB, h5fname, dfSummary, fontsi
                 for iInterv, intervName in enumerate(intervNames):
                     ax[0, iInterv].set_title(intervName, fontsize=fontsize)
 
-                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'intervName': intervName}))
+                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'phase': intervName}))
                     if row is not None:
                         idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
                         rezDict[intervName] = mean_vals_axis(idxs, vals, 2, nChannel)
 
                 for iInterv, intervName in enumerate(intervNames):
-                    if intervName != 'PRE':
+                    if (intervName != 'PRE') and (intervName in rezDict.keys()):
                         haveColorBar = iInterv == nInterv - 1
                         dataDB.plot_area_values(fig, ax[iMouse][iInterv], rezDict[intervName] - rezDict['PRE'],
                                                 vmin=-vmax, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
@@ -333,7 +335,7 @@ def plot_singlets_brainplot_mousephase_submouse(dataDB, h5fname, dfSummary, font
     mice = sorted(dataDB.mice)
     nMice = len(mice)
 
-    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'intervName'}))
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'phase'}))
     for key, dataTmp in dfSummary.groupby(groupLst):
         for pidType in pidTypes:
             vmax = 1.0 if pidType == 'red' else 0.25
@@ -346,16 +348,17 @@ def plot_singlets_brainplot_mousephase_submouse(dataDB, h5fname, dfSummary, font
                 for iMouse, mousename in enumerate(mice):
                     ax[iMouse, 0].set_ylabel(mousename, fontsize=fontsize)
 
-                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'intervName': intervName}))
+                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'phase': intervName}))
                     if row is not None:
                         idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
                         rezDict[mousename] = mean_vals_axis(idxs, vals, 2, nChannel)
 
                 rezMean = np.mean(list(rezDict.values()), axis=0)
                 for iMouse, mousename in enumerate(mice):
-                    haveColorBar = iMouse == nMice - 1
-                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], rezDict[intervName] - rezMean,
-                                            vmin=-vmax, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
+                    if mousename in rezDict.keys():
+                        haveColorBar = iMouse == nMice - 1
+                        dataDB.plot_area_values(fig, ax[iMouse][iInterv], rezDict[mousename] - rezMean,
+                                                vmin=-vmax, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
 
             plotSuffix = '_'.join(list(key) + [pidType])
             plt.savefig('pid_brainplot_signlets_mousephase_submouse_' + '_' + plotSuffix + '.png')
@@ -468,7 +471,7 @@ def plot_2D_avg(dataDB, h5fname, dfSummary, paramKey, paramNames, dropChannels=N
     nMice = len(mice)
     nParam = len(paramNames)
 
-    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'intervName'}))
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', paramKey}))
     for key, dataTmp in dfSummary.groupby(groupLst):
         for pidType in pidTypes:
             fig, ax = plt.subplots(nrows=nMice, ncols=nParam, figsize=(4*nParam, 4*nMice))
@@ -476,7 +479,7 @@ def plot_2D_avg(dataDB, h5fname, dfSummary, paramKey, paramNames, dropChannels=N
                 ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
                 for iParam, paramName in enumerate(paramNames):
-                    ax[0][iParam].set_ylabel(paramName, fontsize=fontsize)
+                    ax[0][iParam].set_title(paramName, fontsize=fontsize)
 
                     idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, paramKey: paramName}))
                     if row is not None:
@@ -486,7 +489,7 @@ def plot_2D_avg(dataDB, h5fname, dfSummary, paramKey, paramNames, dropChannels=N
                         Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
 
                         if pidType != 'unique':
-                            Mrez2D += Mrez2D.T
+                            Mrez2D = matrix_copy_triangle_symmetric(Mrez2D, source='U')
 
                         imshow(fig, ax[iMouse][iParam], Mrez2D, cmap='jet',
                                haveColorBar=iParam == nParam - 1)
@@ -516,7 +519,7 @@ def plot_2D_target(dataDB, h5fname, dfSummary, trgChName, paramKey, paramNames, 
                 ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
                 for iParam, paramName in enumerate(paramNames):
-                    ax[0][iParam].set_ylabel(paramName, fontsize=fontsize)
+                    ax[0][iParam].set_title(paramName, fontsize=fontsize)
 
                     idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, paramKey: paramName}))
                     if row is not None:
@@ -526,7 +529,7 @@ def plot_2D_target(dataDB, h5fname, dfSummary, trgChName, paramKey, paramNames, 
                         Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
 
                         if pidType != 'unique':
-                            Mrez2D += Mrez2D.T
+                            Mrez2D = matrix_copy_triangle_symmetric(Mrez2D, source='U')
 
                         imshow(fig, ax[iMouse][iParam], Mrez2D, cmap='jet',
                                haveColorBar=iParam == nParam - 1)
@@ -547,17 +550,18 @@ def plot_2D_target_mousephase_subpre(dataDB, h5fname, dfSummary, trgChName, drop
     nMice = len(mice)
     nInterv = len(intervNames)
 
-    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'intervName'}))
-    for key, dataTmp in dfSummary.groupby(groupLst):
+    dfBnSession = pd_query(dfSummary, {'datatype': 'bn_session'})
+    groupLst = sorted(list(set(dfBnSession.columns) - {'key', 'mousename', 'phase'}))
+    for key, dataTmp in dfBnSession.groupby(groupLst):
         for pidType in pidTypes:
             fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4*nInterv, 4*nMice))
             for iMouse, mousename in enumerate(mice):
                 ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
                 rezDict = {}
                 for iInterv, intervName in enumerate(intervNames):
-                    ax[0][iInterv].set_ylabel(intervName, fontsize=fontsize)
+                    ax[0][iInterv].set_title(intervName, fontsize=fontsize)
 
-                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'intervName': intervName}))
+                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'phase': intervName}))
                     if row is not None:
                         idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
                         Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
@@ -565,12 +569,12 @@ def plot_2D_target_mousephase_subpre(dataDB, h5fname, dfSummary, trgChName, drop
                         Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
 
                         if pidType != 'unique':
-                            Mrez2D += Mrez2D.T
+                            Mrez2D = matrix_copy_triangle_symmetric(Mrez2D, source='U')
 
                         rezDict[intervName] = Mrez2D
 
                 for iInterv, intervName in enumerate(intervNames):
-                    if intervName != 'PRE':
+                    if (intervName != 'PRE') and (intervName in rezDict.keys()):
                         imshow(fig, ax[iMouse][iInterv], rezDict[intervName] - rezDict['PRE'],
                                cmap='jet', haveColorBar=iInterv == nInterv - 1)
 
@@ -590,18 +594,18 @@ def plot_2D_target_mousephase_submouse(dataDB, h5fname, dfSummary, trgChName, dr
     nMice = len(mice)
     nInterv = len(intervNames)
 
-    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'intervName'}))
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename', 'phase'}))
     for key, dataTmp in dfSummary.groupby(groupLst):
         for pidType in pidTypes:
             fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4*nInterv, 4*nMice))
             for iInterv, intervName in enumerate(intervNames):
-                ax[0][iInterv].set_ylabel(intervName, fontsize=fontsize)
+                ax[0][iInterv].set_title(intervName, fontsize=fontsize)
 
                 rezDict = {}
                 for iMouse, mousename in enumerate(mice):
                     ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
-                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'intervName': intervName}))
+                    idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'phase': intervName}))
                     if row is not None:
                         idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
                         Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
@@ -609,14 +613,15 @@ def plot_2D_target_mousephase_submouse(dataDB, h5fname, dfSummary, trgChName, dr
                         Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
 
                         if pidType != 'unique':
-                            Mrez2D += Mrez2D.T
+                            Mrez2D = matrix_copy_triangle_symmetric(Mrez2D, source='U')
 
                         rezDict[mousename] = Mrez2D
 
                 rezAvg = np.mean(list(rezDict.values()), axis=0)
                 for iMouse, mousename in enumerate(mice):
-                    imshow(fig, ax[iMouse][iInterv], rezDict[mousename] - rezAvg,
-                           cmap='jet', haveColorBar=iInterv == nInterv - 1)
+                    if mousename in rezDict.keys():
+                        imshow(fig, ax[iMouse][iInterv], rezDict[mousename] - rezAvg,
+                               cmap='jet', haveColorBar=iInterv == nInterv - 1)
 
             pltSuffix = '_'.join([trgChName] + list(key) + [pidType])
             plt.savefig('pid_2D_bytrg_mousephase_submouse_' + pltSuffix + '.png')
