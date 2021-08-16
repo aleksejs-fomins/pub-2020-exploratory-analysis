@@ -5,6 +5,7 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy.stats import mannwhitneyu, fisher_exact
 from sklearn.metrics import cohen_kappa_score
+from pathlib import Path
 
 from IPython.display import display
 
@@ -16,6 +17,10 @@ from mesostat.stat.clustering import cluster_dist_matrix_min, cluster_plot
 from mesostat.utils.pandas_helper import pd_query, pd_merge_multiple, pd_is_one_row, pd_append_row, pd_pivot
 from mesostat.visualization.mpl_barplot import barplot_stacked_indexed, barplot_labeled, sns_barplot
 from mesostat.visualization.mpl_matrix import imshow
+
+
+def _makepath(path):
+    Path(path).mkdir(parents=True, exist_ok=True)
 
 
 def _vals_to_df(vals, valKey, keyDict):
@@ -125,7 +130,10 @@ def plot_cdf(h5fname, dfSummary, fontsize=20):
                 ax[iPID].set_title(pidType, fontsize=fontsize)
 
             ax[iPID].legend()
-        plt.savefig('pics/PID_cdf_'+'_'.join(key)+'.png')
+
+        prefixPath = 'pics/pid_avg/pid_cdf/'
+        _makepath(prefixPath)
+        plt.savefig(prefixPath + 'PID_cdf_'+'_'.join(key)+'.png')
         plt.close()
 
 
@@ -161,7 +169,9 @@ def plot_violin_test(h5fname, h5fnameRand, dfSummary, dfSummaryRand, fontsize=20
             ax[iPID].set_yscale('log')
             ax[iPID].set_title(pidType, fontsize=fontsize)
 
-        plt.savefig('pics/PID_violin_'+'_'.join(key) + '.png')
+        prefixPath = 'pics/pid_avg/pid_test_violin/'
+        _makepath(prefixPath)
+        plt.savefig(prefixPath + 'pics/PID_violin_'+'_'.join(key) + '.png')
         plt.close()
 
 
@@ -187,7 +197,9 @@ def barplot_avg(dataDB, h5fname, dfSummary, paramName, paramVals, fontsize=20):
             sns_barplot(ax[iPID], rezDF, "mousename", 'bits', paramName, annotHue=False, xOrd=mice, hOrd=paramVals)
             ax[iPID].set_title(pidType, fontsize=fontsize)
 
-        plt.savefig('pics/PID_barplot_' + paramName + '_' + '_'.join(groupVals) + '.png')
+        prefixPath = 'pics/pid_avg/pid_avg_barplot_' + paramName + '/'
+        _makepath(prefixPath)
+        plt.savefig(prefixPath + 'PID_barplot_' + paramName + '_' + '_'.join(groupVals) + '.png')
         plt.close()
 
 
@@ -222,7 +234,9 @@ def plot_top_triplets(dataDB, h5fname, dfSummary, nTop=20, fontsize=20):
             barplot_stacked_indexed(ax[iPid], rezDict, xTickLabels=labels, xLabel='triplet',
                                     yLabel='bits', title=pidType, iMax=None, rotation=90, fontsize=fontsize)
 
-        plt.savefig('pid_triplets_barplot' + '_'.join(key) + '.png', dpi=300)
+        prefixPath = 'pics/pid_3D/triplets_barplot/'
+        _makepath(prefixPath)
+        plt.savefig(prefixPath + 'pid_triplets_barplot' + '_'.join(key) + '.png', dpi=300)
         plt.close()
 
 
@@ -248,7 +262,9 @@ def plot_top_singlets(dataDB, h5fname, dfSummary, fontsize=20):
             barplot_stacked_indexed(ax[iPid], rezDict, xTickLabels=labelsCanon, xLabel='singlet',
                                     yLabel='bits', title=pidType, iMax=None, rotation=90, fontsize=fontsize)
 
-        plt.savefig('pid_singlets_barplot' + '_'.join(key) + '.png', dpi=300)
+        prefixPath = 'pics/pid_1D/pid_singlets_top/'
+        _makepath(prefixPath)
+        plt.savefig(prefixPath + 'pid_singlets_barplot' + '_'.join(key) + '.png', dpi=300)
         plt.close()
 
 
@@ -281,8 +297,10 @@ def plot_singlets_brainplot(dataDB, h5fname, dfSummary, paramKey, paramNames, fo
                         dataDB.plot_area_values(fig, ax[iMouse][iParam], valsMeanTrg,
                                                 vmin=0, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
 
+            prefixPath = 'pics/pid_1D/pid_singlets_brainplot_' + paramKey + '/' + pidType + '/'
+            _makepath(prefixPath)
             plotSuffix = '_'.join(list(key) + [pidType])
-            plt.savefig('pid_brainplot_signlets_mouse' + paramKey + '_' + plotSuffix + '.png')
+            plt.savefig(prefixPath + 'pid_brainplot_signlets_mouse' + paramKey + '_' + plotSuffix + '.png')
             plt.close()
 
 
@@ -321,8 +339,10 @@ def plot_singlets_brainplot_mousephase_subpre(dataDB, h5fname, dfSummary, fontsi
                         dataDB.plot_area_values(fig, ax[iMouse][iInterv], rezDict[intervName] - rezDict['PRE'],
                                                 vmin=-vmax, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
 
+            prefixPath = 'pics/pid_1D/pid_singlets_brainplot_subpre/' + pidType + '/'
+            _makepath(prefixPath)
             plotSuffix = '_'.join(list(key) + [pidType])
-            plt.savefig('pid_brainplot_signlets_mousephase_subpre_' + '_' + plotSuffix + '.png')
+            plt.savefig(prefixPath + 'pid_brainplot_signlets_mousephase_subpre_' + '_' + plotSuffix + '.png')
             plt.close()
 
 
@@ -360,6 +380,8 @@ def plot_singlets_brainplot_mousephase_submouse(dataDB, h5fname, dfSummary, font
                         dataDB.plot_area_values(fig, ax[iMouse][iInterv], rezDict[mousename] - rezMean,
                                                 vmin=-vmax, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
 
+            prefixPath = 'pics/pid_1D/pid_singlets_brainplot_submouse/' + pidType + '/'
+            _makepath(prefixPath)
             plotSuffix = '_'.join(list(key) + [pidType])
             plt.savefig('pid_brainplot_signlets_mousephase_submouse_' + '_' + plotSuffix + '.png')
             plt.close()
@@ -408,8 +430,8 @@ def plot_singlets_barplot_2DF(dataDB1, dataDB2, labelDB1, labelDB2, h5fname1, h5
                 dataDB2.plot_area_values(fig, ax[1][iMouse], valsMeanTrg2,
                                          vmin=0, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
 
-        plt.savefig('pid_brainplot_signlets_bymodality_' + plotSuffix + '.png')
-        plt.close()
+            plt.savefig('pid_brainplot_signlets_bymodality_' + plotSuffix + '.png')
+            plt.close()
 
 
 # FIXME: Averaging is not aware of dropped channels
@@ -491,11 +513,14 @@ def plot_2D_avg(dataDB, h5fname, dfSummary, paramKey, paramNames, dropChannels=N
                         if pidType != 'unique':
                             Mrez2D = matrix_copy_triangle_symmetric(Mrez2D, source='U')
 
+                        vmax = 1.0 if pidType == 'red' else 0.5
                         imshow(fig, ax[iMouse][iParam], Mrez2D, cmap='jet',
-                               haveColorBar=iParam == nParam - 1)
+                               haveColorBar=iParam == nParam - 1, limits=[0, vmax])
 
+            prefixPath = 'pics/pid_2D/pid_2D_avg_' + paramKey + '/' + pidType + '/'
+            _makepath(prefixPath)
             pltSuffix = '_'.join([paramKey] + list(key) + [pidType])
-            plt.savefig('pid_2D_avg_mouse' + pltSuffix + '.png')
+            plt.savefig(prefixPath + 'pid_2D_avg_mouse' + pltSuffix + '.png')
             plt.close()
 
 
@@ -531,11 +556,14 @@ def plot_2D_target(dataDB, h5fname, dfSummary, trgChName, paramKey, paramNames, 
                         if pidType != 'unique':
                             Mrez2D = matrix_copy_triangle_symmetric(Mrez2D, source='U')
 
+                        vmax = 1.0 if pidType != 'syn' else 0.5
                         imshow(fig, ax[iMouse][iParam], Mrez2D, cmap='jet',
-                               haveColorBar=iParam == nParam - 1)
+                               haveColorBar=iParam == nParam - 1, limits=[0, vmax])
 
+            prefixPath = 'pics/pid_2D/pid_2D_' + trgChName + '_' + paramKey + '/' + pidType + '/'
+            _makepath(prefixPath)
             pltSuffix = '_'.join([paramKey, trgChName] + list(key) + [pidType])
-            plt.savefig('pid_2D_bytrg_mouse' + pltSuffix + '.png')
+            plt.savefig(prefixPath + 'pid_2D_bytrg_mouse' + pltSuffix + '.png')
             plt.close()
 
 
@@ -575,11 +603,14 @@ def plot_2D_target_mousephase_subpre(dataDB, h5fname, dfSummary, trgChName, drop
 
                 for iInterv, intervName in enumerate(intervNames):
                     if (intervName != 'PRE') and (intervName in rezDict.keys()):
+                        vmax = 1.0 if pidType != 'syn' else 0.5
                         imshow(fig, ax[iMouse][iInterv], rezDict[intervName] - rezDict['PRE'],
-                               cmap='jet', haveColorBar=iInterv == nInterv - 1)
+                               cmap='jet', haveColorBar=iInterv == nInterv - 1, limits=[-vmax, vmax])
 
+            prefixPath = 'pics/pid_2D/pid_2D_' + trgChName + '_subpre/' + pidType + '/'
+            _makepath(prefixPath)
             pltSuffix = '_'.join([trgChName] + list(key) + [pidType])
-            plt.savefig('pid_2D_bytrg_mousephase_subpre_' + pltSuffix + '.png')
+            plt.savefig(prefixPath + 'pid_2D_bytrg_mousephase_subpre_' + pltSuffix + '.png')
             plt.close()
 
 
@@ -620,11 +651,14 @@ def plot_2D_target_mousephase_submouse(dataDB, h5fname, dfSummary, trgChName, dr
                 rezAvg = np.mean(list(rezDict.values()), axis=0)
                 for iMouse, mousename in enumerate(mice):
                     if mousename in rezDict.keys():
+                        vmax = 1.0 if pidType != 'syn' else 0.5
                         imshow(fig, ax[iMouse][iInterv], rezDict[mousename] - rezAvg,
-                               cmap='jet', haveColorBar=iInterv == nInterv - 1)
+                               cmap='jet', haveColorBar=iInterv == nInterv - 1, limits=[-vmax, vmax])
 
+            prefixPath = 'pics/pid_2D/pid_2D_' + trgChName + '_submouse/' + pidType + '/'
+            _makepath(prefixPath)
             pltSuffix = '_'.join([trgChName] + list(key) + [pidType])
-            plt.savefig('pid_2D_bytrg_mousephase_submouse_' + pltSuffix + '.png')
+            plt.savefig(prefixPath + 'pid_2D_bytrg_mousephase_submouse_' + pltSuffix + '.png')
             plt.close()
 
 
@@ -653,7 +687,8 @@ def plot_2D_bytarget_synergy_cluster(dataDB, h5fname, dfSummary, trgChName,
             else:
                 Mrez2DEff = Mrez2D
 
-            imshow(fig, ax[0, iMouse], Mrez2D, title=row['mousename'], haveColorBar=True, cmap='jet', fontsize=fontsize)
+            imshow(fig, ax[0, iMouse], Mrez2D, title=row['mousename'], haveColorBar=True,
+                   cmap='jet', fontsize=fontsize, limits=[0, 0.5])
             clusters = cluster_dist_matrix_min(Mrez2DEff, clusterParam, method='OPTICS')
             print(clusters)
 
