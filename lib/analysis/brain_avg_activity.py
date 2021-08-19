@@ -1,54 +1,15 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.decomposition import PCA
+from IPython.display import display
+from ipywidgets import IntProgress
 
 from mesostat.utils.arrays import numpy_merge_dimensions
-from mesostat.utils.signals.resample import resample_kernel_same_interv
-from sklearn.decomposition import PCA
+# from mesostat.utils.pandas_helper import outer_product_df, drop_rows_byquery
 
+from lib.analysis.metric_helper import metric_by_selector, get_data_list
+from lib.analysis.bulk_metrics import _dict_append_auto, metric_mouse_bulk
 
-def _resample_delay(dataRSP, tStart, tStop, FPS=20.0, padReward=False):
-    iStart = int(tStart * FPS)
-    iStop = int(tStop * FPS)
-    nDelTrg = int(2.0 * FPS)
-    nRewTrg = int(1.0 * FPS)
-
-    dataPRE = dataRSP[:, :iStart]
-    dataDEL = dataRSP[:, iStart:iStop]
-    dataREW = dataRSP[:, iStop:]
-
-    nDel = dataDEL.shape[1]
-    nRew = dataREW.shape[1]
-
-    # Resample delay to 2s
-    W = resample_kernel_same_interv(nDel, nDelTrg)
-    dataDEL = np.einsum('lj,ijk->ilk', W, dataDEL)
-
-    if padReward:
-        if nRew > nRewTrg:
-            # Crop reward to 1 second if it exceeds
-            dataREW = dataREW[:, :nRewTrg]
-        elif nRew < nRewTrg:
-            # Pad reward with NAN if it is too short
-            tmp = np.full((dataREW.shape[0], nRewTrg, dataREW.shape[2]), np.nan)
-            tmp[:, :nRew] = dataREW
-            dataREW = tmp
-
-    return np.concatenate([dataPRE, dataDEL, dataREW], axis=1)
-
-
-def _get_data_concatendated_sessions(dataDB, haveDelay, mousename, zscoreDim=None, **kwargs):
-    if not haveDelay:
-        dataRSPLst = dataDB.get_neuro_data({'mousename': mousename}, zscoreDim=zscoreDim, **kwargs)
-    else:
-        dataRSPLst = []
-        for session in dataDB.get_sessions(mousename):
-            dataRSP = dataDB.get_neuro_data({'session': session}, zscoreDim=zscoreDim, **kwargs)[0]
-            delayStart = dataDB.get_interval_times(session, mousename, 'DEL')[0][0]
-            delayEnd = delayStart + dataDB.get_delay_length(mousename, session)
-            dataRSPLst += [_resample_delay(dataRSP, delayStart, delayEnd, FPS=dataDB.targetFreq, padReward=True)]
-
-    # Stack sessions into trials
-    return np.concatenate(dataRSPLst, axis=0)
 
 
 def plot_pca1_session(dataDB, mousename, session, trialTypesSelected=('Hit', 'CR')):
@@ -104,7 +65,9 @@ def plot_pca1_mouse(dataDB, trialTypesSelected=('Hit', 'CR'), skipReward=None):
 
         for iMouse, mousename in enumerate(sorted(dataDB.mice)):
             # Train PCA on whole dataset, but only trial based timesteps
-            dataRSP = _get_data_concatendated_sessions(dataDB, haveDelay, mousename, **{'datatype': datatype})
+            dataLst = get_data_list(dataDB, haveDelay, mousename, **{'datatype': datatype})
+            dataRSP = np.concatenate(dataLst, axis=0)
+
             timesTrial = dataDB.get_times(dataRSP.shape[1])
 
             dataSP = numpy_merge_dimensions(dataRSP, 0, 2)
@@ -118,7 +81,8 @@ def plot_pca1_mouse(dataDB, trialTypesSelected=('Hit', 'CR'), skipReward=None):
             for trialType in trialTypesSelected:
                 # Evaluate on individual trials
                 kwargs = {'datatype': datatype, 'trialType': trialType}
-                dataRSP = _get_data_concatendated_sessions(dataDB, haveDelay, mousename, **kwargs)
+                dataLst = get_data_list(dataDB, haveDelay, mousename, **kwargs)
+                dataRSP = np.concatenate(dataLst, axis=0)
                 dataSP = np.nanmean(dataRSP, axis=0)
                 dataPCA = pcaTransform(dataSP)
                 dataAvg = np.mean(dataSP, axis=1)
@@ -137,3 +101,18 @@ def plot_pca1_mouse(dataDB, trialTypesSelected=('Hit', 'CR'), skipReward=None):
         ax[0, 0].set_ylabel('Trial-average activity')
         ax[1, 0].set_ylabel('1st PCA trial-average')
         plt.show()
+
+
+def calc_metric_mouse_delay(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExisting=False, verbose=True,
+                            metricSettings=None, sweepSettings=None, minTrials=1, dropChannels=None,
+                            dataTypes='auto', trialTypeNames=None, perfNames=None, intervNames=None, timeAvg=False,
+                            exclQueryLst=None, haveDelay=False):
+
+    # Proxy that allows delay averaging upon data aquisition
+    dataFunc = lambda dataDB, selector, **kwargs: get_data_list(dataDB, haveDelay, selector['mousename'], **kwargs)
+
+    metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExisting=skipExisting, verbose=verbose,
+                      metricSettings=metricSettings, sweepSettings=sweepSettings, minTrials=minTrials,
+                      dropChannels=dropChannels, dataTypes=dataTypes, trialTypeNames=trialTypeNames,
+                      perfNames=perfNames, intervNames=intervNames, timeAvg=timeAvg,
+                      exclQueryLst=exclQueryLst, dataFunc=dataFunc)

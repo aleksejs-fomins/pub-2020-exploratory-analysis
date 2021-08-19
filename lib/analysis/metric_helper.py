@@ -3,6 +3,7 @@ from IPython.display import display
 from ipywidgets import IntProgress
 
 from mesostat.utils.arrays import numpy_nonelist_to_array
+from mesostat.utils.signals.resample import resample_kernel_same_interv
 
 def dimord_to_labels(dimOrd):
     dimOrdDict = {
@@ -12,6 +13,50 @@ def dimord_to_labels(dimOrd):
     }
 
     return tuple([dimOrdDict[d] for d in dimOrd])
+
+
+def _resample_delay(dataRSP, tStart, tStop, FPS=20.0, padReward=False):
+    iStart = int(tStart * FPS)
+    iStop = int(tStop * FPS)
+    nDelTrg = int(2.0 * FPS)
+    nRewTrg = int(1.0 * FPS)
+
+    dataPRE = dataRSP[:, :iStart]
+    dataDEL = dataRSP[:, iStart:iStop]
+    dataREW = dataRSP[:, iStop:]
+
+    nDel = dataDEL.shape[1]
+    nRew = dataREW.shape[1]
+
+    # Resample delay to 2s
+    W = resample_kernel_same_interv(nDel, nDelTrg)
+    dataDEL = np.einsum('lj,ijk->ilk', W, dataDEL)
+
+    if padReward:
+        if nRew > nRewTrg:
+            # Crop reward to 1 second if it exceeds
+            dataREW = dataREW[:, :nRewTrg]
+        elif nRew < nRewTrg:
+            # Pad reward with NAN if it is too short
+            tmp = np.full((dataREW.shape[0], nRewTrg, dataREW.shape[2]), np.nan)
+            tmp[:, :nRew] = dataREW
+            dataREW = tmp
+
+    return np.concatenate([dataPRE, dataDEL, dataREW], axis=1)
+
+
+def get_data_list(dataDB, haveDelay, mousename, **kwargs):
+    if not haveDelay:
+        dataRSPLst = dataDB.get_neuro_data({'mousename': mousename}, **kwargs)
+    else:
+        dataRSPLst = []
+        for session in dataDB.get_sessions(mousename):
+            dataRSP = dataDB.get_neuro_data({'session': session}, **kwargs)[0]
+            delayStart = dataDB.get_interval_times(session, mousename, 'DEL')[0][0]
+            delayEnd = delayStart + dataDB.get_delay_length(mousename, session)
+            dataRSPLst += [_resample_delay(dataRSP, delayStart, delayEnd, FPS=dataDB.targetFreq, padReward=True)]
+
+    return dataRSPLst
 
 
 def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
@@ -75,7 +120,7 @@ def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
 
 
 def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
-                       dataName=None, skipExisting=False, minTrials=1, dropChannels=None,
+                       dataName=None, skipExisting=False, minTrials=1, dropChannels=None, dataFunc=None,
                        timeWindow=None, timeAvg=False, metricSettings=None, sweepSettings=None, **kwargs):
 
     # Drop all arguments that were not specified
@@ -98,7 +143,11 @@ def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
         dsuffix = dataName + '_' + '_'.join(attrsDict.values())
         print('Skipping existing', dsuffix)
     else:
-        dataLst = dataDB.get_neuro_data(selector, **kwargs)
+        if dataFunc is None:
+            dataLst = dataDB.get_neuro_data(selector, **kwargs)
+        else:
+            dataLst = dataFunc(dataDB, selector, **kwargs)
+
         dataRSP = np.concatenate(dataLst, axis=0)
         print('--', dataRSP.shape)
 

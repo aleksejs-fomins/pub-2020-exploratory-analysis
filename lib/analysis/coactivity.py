@@ -3,6 +3,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.decomposition import PCA
+from IPython.display import display
+from ipywidgets import IntProgress
 
 from mesostat.utils.signals.filter import zscore, drop_PCA
 import mesostat.stat.consistency.pca as pca
@@ -11,6 +13,8 @@ from mesostat.utils.pandas_helper import outer_product_df, pd_append_row, pd_piv
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
 from mesostat.stat.clustering import cluster_dist_matrix_max, cluster_plot
+
+from lib.analysis.metric_helper import get_data_list
 
 
 ###############################
@@ -819,3 +823,51 @@ def plot_pca_consistency(dataDB, intervNames=None, dropFirst=None, dropChannels=
     plt.close()
 
 
+#######################
+# Movies
+#######################
+
+def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, trialTypes, #nDropPCA=None, #performances=None,
+                                   haveDelay=False, fontsize=20):
+    mice = sorted(dataDB.mice)
+
+    for datatype in ['bn_trial', 'bn_session']:
+        # Store all preprocessed data first
+        dataDict = {}
+        for iMouse, mousename in enumerate(mice):
+            for iTT, trialType in enumerate(trialTypes):
+                print('Reading data, ', datatype, mousename, trialType)
+
+                dataLst = get_data_list(dataDB, haveDelay, mousename, datatype=datatype, trialType=trialType)
+                dataRSP = np.concatenate(dataLst, axis=0)
+
+                mc.set_data(dataRSP, 'rsp')
+                metricSettings = {'havePVal': False, 'estimator': estimator}
+                rezS = mc.metric3D('corr', 's', metricSettings=metricSettings)
+                dataDict[(mousename, trialType)] = rezS
+
+        # Test that all datasets have the same duration
+        shapeSet = set([v.shape for v in dataDict.values()])
+        assert len(shapeSet) == 1
+        nTimes = shapeSet.pop()[0]
+
+        progBar = IntProgress(min=0, max=nTimes, description=datatype)
+        display(progBar)  # display the bar
+        for iTime in range(nTimes):
+            fig, ax = plt.subplots(nrows=len(mice), ncols=len(trialTypes),
+                                   figsize=(4 * len(trialTypes), 4 * len(mice)), tight_layout=True)
+
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+                for iTT, trialType in enumerate(trialTypes):
+                    ax[0][iTT].set_title(trialType, fontsize=fontsize)
+                    # print(datatype, mousename)
+
+                    rezS = dataDict[(mousename, trialType)][iTime]
+
+                    haveColorBar = iTT == len(trialTypes) - 1
+                    imshow(fig, ax[iMouse][iTT], rezS, limits=[-1, 1], cmap='jet', haveColorBar=haveColorBar)
+
+            plt.savefig('corr_mouseTrialType_' + '_'.join([datatype, str(iTime)]) + '.png')
+            plt.close()
+            progBar.value += 1

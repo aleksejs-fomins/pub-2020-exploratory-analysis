@@ -3,11 +3,16 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import mannwhitneyu, wilcoxon, combine_pvalues
+from IPython.display import display
+from ipywidgets import IntProgress
 
 from mesostat.utils.pandas_helper import pd_append_row, pd_pivot, outer_product_df, drop_rows_byquery, pd_is_one_row, pd_query
 from mesostat.visualization.mpl_matrix import imshow
+
 from mesostat.stat.connectomics import offdiag_1D
 from mesostat.stat.testing.htests import classification_accuracy_weighted, rstest_twosided
+
+from lib.analysis.metric_helper import get_data_list
 
 
 def subset_dict(d1, d2):
@@ -471,3 +476,49 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTria
     fig.savefig('consistency_significant_activity_phase_bymouse_metric_' + str(performance) + '.png')
     plt.close()
 
+
+#############################
+# Movies
+#############################
+
+def activity_brainplot_movie_mousetrialtype(dataDB, trialTypes, vmin=None, vmax=None, haveDelay=False, fontsize=20):
+    mice = sorted(dataDB.mice)
+
+    for datatype in ['bn_trial', 'bn_session']:
+        # Store all preprocessed data first
+        dataDict = {}
+        for iMouse, mousename in enumerate(mice):
+            for iTT, trialType in enumerate(trialTypes):
+                print('Reading data, ', datatype, mousename, trialType)
+
+                dataLst = get_data_list(dataDB, haveDelay, mousename, datatype=datatype, trialType=trialType)
+                dataRSP = np.concatenate(dataLst, axis=0)
+                dataSP = np.nanmean(dataRSP, axis=0)
+                dataDict[(mousename, trialType)] = dataSP
+
+        # Test that all datasets have the same duration
+        shapeSet = set([v.shape for v in dataDict.values()])
+        assert len(shapeSet) == 1
+        nTimes = shapeSet.pop()[0]
+
+        progBar = IntProgress(min=0, max=nTimes, description=datatype)
+        display(progBar)  # display the bar
+        for iTime in range(nTimes):
+            fig, ax = plt.subplots(nrows=len(mice), ncols=len(trialTypes),
+                                   figsize=(4 * len(trialTypes), 4 * len(mice)), tight_layout=True)
+
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+                for iTT, trialType in enumerate(trialTypes):
+                    ax[0][iTT].set_title(trialType, fontsize=fontsize)
+                    # print(datatype, mousename)
+
+                    dataP = dataDict[(mousename, trialType)][iTime]
+
+                    haveColorBar = iTT == len(trialTypes)-1
+                    dataDB.plot_area_values(fig, ax[iMouse][iTT], dataP, vmin=vmin, vmax=vmax, cmap='jet',
+                                            haveColorBar=haveColorBar)
+
+            plt.savefig('activity_brainplot_mousetrialtype_' + '_'.join([datatype, str(iTime)]) + '.png')
+            plt.close()
+            progBar.value += 1

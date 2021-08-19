@@ -29,7 +29,7 @@ def _dict_append_auto(d, key, x, xAutoFunc):
 def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExisting=False, verbose=True,
                       metricSettings=None, sweepSettings=None, minTrials=1, dropChannels=None,
                       dataTypes='auto', trialTypeNames=None, perfNames=None, intervNames=None, timeAvg=False,
-                      exclQueryLst=None):
+                      exclQueryLst=None, dataFunc=None):
 
     argSweepDict = {'mousename' : dataDB.mice}
     _dict_append_auto(argSweepDict, 'datatype', dataTypes, dataDB.get_data_types)
@@ -61,6 +61,7 @@ def metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExi
                            zscoreDim=zscoreDim,
                            metricSettings=metricSettings,
                            sweepSettings=sweepSettings,
+                           dataFunc=dataFunc,
                            **kwargs)
 
         progBar.value += 1
