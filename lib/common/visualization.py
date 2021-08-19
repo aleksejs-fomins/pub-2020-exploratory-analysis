@@ -1,4 +1,5 @@
 import os
+import numpy as np
 from mesostat.visualization.opencv_video import merge_images_cv2
 
 
@@ -18,3 +19,13 @@ def merge_image_sequence_movie(pathprefix, suffix, idxMin, idxMax, trgPathName=N
     if deleteSrc:
         for pwd in srcPwdLst:
             os.remove(pwd)
+
+
+def cluster_brain_plot(fig, ax, dataDB, clusters, dropChannels=None, haveColorBar=True):
+    clusterDict = {c: np.where(clusters == c)[0] for c in sorted(set(clusters))}
+    if dropChannels is not None:
+        # Correct channel indices given that some channels were dropped
+        dropChannels = np.array(dropChannels)
+        clusterDict = {c: [el + np.sum(dropChannels < el) for el in v] for c, v in clusterDict.items()}
+
+    dataDB.plot_area_clusters(fig, ax, clusterDict, haveLegend=True, haveColorBar=haveColorBar)

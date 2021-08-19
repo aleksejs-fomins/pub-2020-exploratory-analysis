@@ -8,13 +8,15 @@ from ipywidgets import IntProgress
 
 from mesostat.utils.signals.filter import zscore, drop_PCA
 import mesostat.stat.consistency.pca as pca
-from mesostat.stat.connectomics import tril_1D, offdiag_1D
-from mesostat.utils.pandas_helper import outer_product_df, pd_append_row, pd_pivot, drop_rows_byquery, pd_is_one_row, pd_query
+from mesostat.utils.matrix import offdiag_1D, tril_1D
+from mesostat.utils.pandas_helper import pd_append_row, pd_pivot #, outer_product_df, drop_rows_byquery, pd_is_one_row, pd_query
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
 from mesostat.stat.clustering import cluster_dist_matrix_max, cluster_plot
 
-from lib.analysis.metric_helper import get_data_list
+from lib.common.datawrapper import get_data_list
+from lib.common.visualization import cluster_brain_plot
+from lib.common.param_sweep import DataParameterSweep, param_vals_to_suffix, pd_row_to_kwargs
 
 
 ###############################
@@ -24,16 +26,6 @@ from lib.analysis.metric_helper import get_data_list
 
 def subset_dict(d1, d2):
     return d1.items() <= d2.items()
-
-
-def _cluster_brain_plot(fig, ax, dataDB, clusters, dropChannels=None, haveColorBar=True):
-    clusterDict = {c: np.where(clusters == c)[0] for c in sorted(set(clusters))}
-    if dropChannels is not None:
-        # Correct channel indices given that some channels were dropped
-        dropChannels = np.array(dropChannels)
-        clusterDict = {c: [el + np.sum(dropChannels < el) for el in v] for c, v in clusterDict.items()}
-
-    dataDB.plot_area_clusters(fig, ax, clusterDict, haveLegend=True, haveColorBar=haveColorBar)
 
 
 # Plot channels by their average correlation
@@ -84,35 +76,29 @@ def calc_corr_mouse(dataDB, mc, mousename, nDropPCA=1, dropChannels=None, estima
     return channelLabels, rez2D
 
 
-def plot_corr_mousephase(dataDB, mc, estimator, intervNames=None, dataTypes=None, nDropPCA=None,
-                                dropChannels=None, haveBrain=False, trialTypes=None, performances=None, haveMono=True,
-                                exclQueryLst=None, thrMono=0.4, clusterParam=-10, fontsize=20):
+def plot_corr_mouse(dataDB, mc, estimator, xParamName, nDropPCA=None, dropChannels=None, haveBrain=False, haveMono=True,
+                    exclQueryLst=None, thrMono=0.4, clusterParam=-10, fontsize=20, **kwargs):  # intervNames=None, dataTypes=None, trialTypes=None, performances=None,
 
-    mice = sorted(dataDB.mice)
-    intervNames = intervNames if intervNames is not None else dataDB.get_interval_names()
-    nMice = len(mice)
-    nInterv = len(intervNames)
+    assert xParamName in ['intervName', 'trialType'], 'Unexpected parameter'
+    assert xParamName in kwargs.keys(), 'Requires ' + xParamName
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
+    nMice = dps.param_size('mousename')
+    nXParam = dps.param_size(xParamName)
 
-    argSweepDict = {
-        'datatype': dataTypes if dataTypes is not None else dataDB.get_data_types(),
-        'trialType': trialTypes if trialTypes is not None else dataDB.get_trial_type_names()
-    }
-    if performances is not None:
-        argSweepDict['performance'] = performances
-
-    sweepDF = outer_product_df(argSweepDict)
-    for idx, row in sweepDF.iterrows():
-        plotSuffix = '_'.join([str(s) for s in row.values])
+    for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', xParamName])):
+        plotSuffix = param_vals_to_suffix(paramVals)
         print(plotSuffix)
 
-        figCorr, axCorr = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4*nInterv, 4*nMice), tight_layout=True)
-        figClust, axClust = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4 * nInterv, 4 * nMice), tight_layout=True)
+        figCorr, axCorr = plt.subplots(nrows=nMice, ncols=nXParam, figsize=(4*nXParam, 4*nMice), tight_layout=True)
+        figClust, axClust = plt.subplots(nrows=nMice, ncols=nXParam, figsize=(4 * nXParam, 4 * nMice), tight_layout=True)
         if haveBrain:
-            figBrain, axBrain = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4 * nInterv, 4 * nMice), tight_layout=True)
+            figBrain, axBrain = plt.subplots(nrows=nMice, ncols=nXParam, figsize=(4 * nXParam, 4 * nMice), tight_layout=True)
         if haveMono:
-            figMono, axMono = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4 * nInterv, 4 * nMice), tight_layout=True)
+            figMono, axMono = plt.subplots(nrows=nMice, ncols=nXParam, figsize=(4 * nXParam, 4 * nMice), tight_layout=True)
 
-        for iMouse, mousename in enumerate(mice):
+        for mousename, dfMouse in dfTmp.groupby(['mousename']):
+            iMouse = dps.param_index('mousename', mousename)
+
             axCorr[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
             axClust[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
@@ -121,182 +107,80 @@ def plot_corr_mousephase(dataDB, mc, estimator, intervNames=None, dataTypes=None
             if haveMono:
                 axMono[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
-            for iInterv, intervName in enumerate(intervNames):
-                axCorr[0][iInterv].set_title(intervName, fontsize=fontsize)
-                axClust[0][iInterv].set_title(intervName, fontsize=fontsize)
+            for idx, row in dfMouse.iterrows():
+                xParamVal = row[xParamName]
+                iXParam = dps.param_index(xParamName, xParamVal)
+
+                axCorr[0][iXParam].set_title(xParamVal, fontsize=fontsize)
+                axClust[0][iXParam].set_title(xParamVal, fontsize=fontsize)
 
                 if haveBrain:
-                    axBrain[0][iInterv].set_title(intervName, fontsize=fontsize)
+                    axBrain[0][iXParam].set_title(xParamVal, fontsize=fontsize)
                 if haveMono:
-                    axMono[0][iInterv].set_title(intervName, fontsize=fontsize)
+                    axMono[0][iXParam].set_title(xParamVal, fontsize=fontsize)
 
-                kwargsThis = {**dict(row), **{'mousename': mousename, 'intervName': intervName}}
-                kwargsThis = {k: v if v != 'None' else None for k, v in kwargsThis.items()}
-
-                if any([subset_dict(d, kwargsThis) for d in exclQueryLst]):
-                    print('--skipping', kwargsThis)
-                    continue
-
-                del kwargsThis['mousename']
+                kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
                 channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename,
                                                        nDropPCA=nDropPCA, dropChannels=dropChannels,
                                                        estimator=estimator, **kwargsThis)
 
-                haveColorBar = iInterv == nInterv - 1
+                haveColorBar = iXParam == nXParam - 1
 
                 # Plot correlations
-                imshow(figCorr, axCorr[iMouse][iInterv], rez2D, title='corr', limits=[-1,1], cmap='jet',
+                imshow(figCorr, axCorr[iMouse][iXParam], rez2D, title='corr', limits=[-1,1], cmap='jet',
                        haveColorBar=haveColorBar)
 
                 # Plot clustering
                 clusters = cluster_dist_matrix_max(rez2D, clusterParam, method='Affinity')
-                cluster_plot(figClust, axClust[iMouse][iInterv], rez2D, clusters, channelLabels, limits=[-1,1],
+                cluster_plot(figClust, axClust[iMouse][iXParam], rez2D, clusters, channelLabels, limits=[-1,1],
                              cmap='jet', haveColorBar=haveColorBar)
 
                 if haveBrain:
-                    _cluster_brain_plot(figBrain, axBrain[iMouse][iInterv], dataDB, clusters,
+                    cluster_brain_plot(figBrain, axBrain[iMouse][iXParam], dataDB, clusters,
                                         dropChannels=dropChannels, haveColorBar=haveColorBar)
 
                 if haveMono:
-                    _plot_corr_1D(figMono, axMono[iMouse][iInterv], channelLabels, rez2D, thrMono)
+                    _plot_corr_1D(figMono, axMono[iMouse][iXParam], channelLabels, rez2D, thrMono)
 
         # Save image
-        figCorr.savefig('corr_mousephase_' + plotSuffix + '.png')
+        plotPrefix = 'corr_mouse' + xParamName
+
+        figCorr.savefig(plotPrefix + '_' + plotSuffix + '.png')
         plt.close(figCorr)
-        figClust.savefig('corr_clust_mousephase_' + plotSuffix + '.png')
+        figClust.savefig(plotPrefix + '_clust_' + plotSuffix + '.png')
         plt.close(figClust)
         if haveBrain:
-            figBrain.savefig('corr_clust_brainplot_mousephase_' + plotSuffix + '.png')
+            figBrain.savefig(plotPrefix + '_clust_brainplot_' + plotSuffix + '.png')
             plt.close(figBrain)
         if haveMono:
-            figMono.savefig('corr_1D_mousephase_' + plotSuffix + '.png')
+            figMono.savefig(plotPrefix + '_1D_' + plotSuffix + '.png')
             plt.close(figMono)
 
 
-def plot_corr_mousetrialtype(dataDB, mc, estimator, intervNames=None, dataTypes=None, nDropPCA=None,
-                             dropChannels=None, haveBrain=False, trialTypes=None, performances=None, haveMono=True,
-                             exclQueryLst=None, thrMono=0.4, clusterParam=-10, fontsize=20):
-    mice = sorted(dataDB.mice)
-    nMice = len(mice)
-    trialTypes = trialTypes if trialTypes is not None else dataDB.get_trial_type_names()
-    nTrialType = len(trialTypes)
+def plot_corr_mousephase_subpre(dataDB, mc, estimator, nDropPCA=None, dropChannels=None, exclQueryLst=None, fontsize=20,
+                                **kwargs):  # intervNames=None, trialTypes=None, performances=None,
 
-    argSweepDict = {
-        'datatype': dataTypes if dataTypes is not None else dataDB.get_data_types(),
-        'intervName': intervNames if intervNames is not None else dataDB.get_interval_names()
-    }
-    if performances is not None:
-        argSweepDict['performance'] = performances
+    assert 'intervName' in kwargs.keys(), 'Requires phases'
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', datatype=['bn_session'], **kwargs)
+    nMice = dps.param_size('mousename')
+    nInterv = dps.param_size('intervName')
 
-    sweepDF = outer_product_df(argSweepDict)
-    for idx, row in sweepDF.iterrows():
-        plotSuffix = '_'.join([str(s) for s in row.values])
-        print(plotSuffix)
-
-        figCorr, axCorr = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4*nTrialType, 4*nMice), tight_layout=True)
-        figClust, axClust = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4 * nTrialType, 4 * nMice), tight_layout=True)
-        if haveBrain:
-            figBrain, axBrain = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4 * nTrialType, 4 * nMice), tight_layout=True)
-        if haveMono:
-            figMono, axMono = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4 * nTrialType, 4 * nMice), tight_layout=True)
-
-        for iMouse, mousename in enumerate(mice):
-            axCorr[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-            axClust[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-
-            if haveBrain:
-                axBrain[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-            if haveMono:
-                axMono[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-
-            for iTrialType, trialType in enumerate(trialTypes):
-                axCorr[0][iTrialType].set_title(trialType, fontsize=fontsize)
-                axClust[0][iTrialType].set_title(trialType, fontsize=fontsize)
-
-                if haveBrain:
-                    axBrain[0][iTrialType].set_title(trialType, fontsize=fontsize)
-                if haveMono:
-                    axMono[0][iTrialType].set_title(trialType, fontsize=fontsize)
-
-                kwargsThis = {**dict(row), **{'mousename': mousename, 'trialType': trialType}}
-                kwargsThis = {k: v if v != 'None' else None for k, v in kwargsThis.items()}
-
-                if any([subset_dict(d, kwargsThis) for d in exclQueryLst]):
-                    print('--skipping', kwargsThis)
-                    continue
-
-                del kwargsThis['mousename']
-                channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename,
-                                                       nDropPCA=nDropPCA, dropChannels=dropChannels,
-                                                       estimator=estimator, **kwargsThis)
-
-                haveColorBar = iTrialType == nTrialType - 1
-
-                # Plot correlations
-                imshow(figCorr, axCorr[iMouse][iTrialType], rez2D, title='corr', limits=[-1,1], cmap='jet',
-                       haveColorBar=haveColorBar)
-
-                # Plot clustering
-                clusters = cluster_dist_matrix_max(rez2D, clusterParam, method='Affinity')
-                cluster_plot(figClust, axClust[iMouse][iTrialType], rez2D, clusters, channelLabels, limits=[-1,1],
-                             cmap='jet', haveColorBar=haveColorBar)
-
-                if haveBrain:
-                    _cluster_brain_plot(figBrain, axBrain[iMouse][iTrialType], dataDB, clusters,
-                                        dropChannels=dropChannels, haveColorBar=haveColorBar)
-
-                if haveMono:
-                    _plot_corr_1D(figMono, axMono[iMouse][iTrialType], channelLabels, rez2D, thrMono)
-
-        # Save image
-        figCorr.savefig('corr_mouseTrialType_' + plotSuffix + '.png')
-        plt.close(figCorr)
-        figClust.savefig('corr_clust_mouseTrialType_' + plotSuffix + '.png')
-        plt.close(figClust)
-        if haveBrain:
-            figBrain.savefig('corr_clust_brainplot_mouseTrialType_' + plotSuffix + '.png')
-            plt.close(figBrain)
-        if haveMono:
-            figMono.savefig('corr_1D_mouseTrialType_' + plotSuffix + '.png')
-            plt.close(figMono)
-
-
-def plot_corr_mousephase_subpre(dataDB, mc, estimator, intervNames=None, nDropPCA=None,
-                                dropChannels=None, trialTypes=None, performances=None, exclQueryLst=None, fontsize=20):
-    mice = sorted(dataDB.mice)
-    intervNames = intervNames if intervNames is not None else dataDB.get_interval_names()
-    nMice = len(mice)
-    nInterv = len(intervNames)
-
-    argSweepDict = {
-        'datatype': ['bn_session'],
-        'trialType': trialTypes if trialTypes is not None else dataDB.get_trial_type_names()
-    }
-    if performances is not None:
-        argSweepDict['performance'] = performances
-
-    sweepDF = outer_product_df(argSweepDict)
-    for idx, row in sweepDF.iterrows():
-        plotSuffix = '_'.join([str(s) for s in row.values])
+    for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', 'intervName'])):
+        plotSuffix = param_vals_to_suffix(paramVals)
         print(plotSuffix)
 
         figCorr, axCorr = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4*nInterv, 4*nMice), tight_layout=True)
 
-        for iMouse, mousename in enumerate(mice):
+        for mousename, dfMouse in dfTmp.groupby(['mousename']):
+            iMouse = dps.param_index('mousename', mousename)
+
             axCorr[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
             rezDict = {}
-            for iInterv, intervName in enumerate(intervNames):
-                axCorr[0][iInterv].set_title(intervName, fontsize=fontsize)
 
-                assert (iInterv != 0) or (intervName == 'PRE')
-                kwargsThis = {**dict(row), **{'mousename': mousename, 'intervName': intervName}}
-                kwargsThis = {k: v if v != 'None' else None for k, v in kwargsThis.items()}
+            for idx, row in dfMouse.iterrows():
+                intervName = row['intervName']
 
-                if any([subset_dict(d, kwargsThis) for d in exclQueryLst]):
-                    print('--skipping', kwargsThis)
-                    continue
-
-                del kwargsThis['mousename']
+                kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
                 channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename,
                                                        nDropPCA=nDropPCA, dropChannels=dropChannels,
                                                        estimator=estimator, **kwargsThis)
@@ -304,10 +188,13 @@ def plot_corr_mousephase_subpre(dataDB, mc, estimator, intervNames=None, nDropPC
                 rezDict[intervName] = rez2D
 
             # Plot correlations
-            for iInterv, intervName in enumerate(intervNames):
+            for intervName, rezInterv in rezDict.items():
+                iInterv = dps.param_index('intervName', intervName)
+
+                axCorr[0][iInterv].set_title(intervName, fontsize=fontsize)
                 if (intervName in rezDict.keys()) and (intervName != 'PRE'):
                     haveColorBar = iInterv == nInterv - 1
-                    imshow(figCorr, axCorr[iMouse][iInterv], rezDict[intervName] - rezDict['PRE'],
+                    imshow(figCorr, axCorr[iMouse][iInterv], rezInterv - rezDict['PRE'],
                            title='corr', haveColorBar=haveColorBar, limits=[-1, 1], cmap='RdBu_r')
 
         # Save image
@@ -315,45 +202,31 @@ def plot_corr_mousephase_subpre(dataDB, mc, estimator, intervNames=None, nDropPC
         plt.close()
 
 
-def plot_corr_mousephase_submouse(dataDB, mc, estimator, intervNames=None, dataTypes=None, nDropPCA=None,
-                               dropChannels=None, trialTypes=None, performances=None, exclQueryLst=None, fontsize=20):
-    mice = sorted(dataDB.mice)
-    intervNames = intervNames if intervNames is not None else dataDB.get_interval_names()
-    nMice = len(mice)
-    nInterv = len(intervNames)
+def plot_corr_mousephase_submouse(dataDB, mc, estimator, nDropPCA=None, dropChannels=None, exclQueryLst=None,
+                                  fontsize=20, **kwargs):  # intervNames=None, dataTypes=None, trialTypes=None, performances=None
 
-    argSweepDict = {
-        'datatype': dataTypes if dataTypes is not None else dataDB.get_data_types(),
-        'trialType': trialTypes if trialTypes is not None else dataDB.get_trial_type_names()
-    }
-    if performances is not None:
-        argSweepDict['performance'] = performances
+    assert 'intervName' in kwargs.keys(), 'Requires phases'
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
+    nMice = dps.param_size('mousename')
+    nInterv = dps.param_size('intervName')
 
-    sweepDF = outer_product_df(argSweepDict)
-    for idx, row in sweepDF.iterrows():
-        plotSuffix = '_'.join([str(s) for s in row.values])
+    for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', 'intervName'])):
+        plotSuffix = param_vals_to_suffix(paramVals)
         print(plotSuffix)
 
         figCorr, axCorr = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4*nInterv, 4*nMice))
 
-        for iInterv, intervName in enumerate(intervNames):
-            assert (iInterv != 0) or (intervName == 'PRE')
+        for intervName, dfInterv in dfTmp.groupby(['intervName']):
+            iInterv = dps.param_index('intervName', intervName)
 
             axCorr[0][iInterv].set_title(intervName, fontsize=fontsize)
 
             rezDict = {}
-            for iMouse, mousename in enumerate(mice):
-
+            for idx, row in dfInterv.iterrows():
+                mousename = row['mousename']
                 axCorr[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
-                kwargsThis = {**dict(row), **{'mousename': mousename, 'intervName': intervName}}
-                kwargsThis = {k: v if v != 'None' else None for k, v in kwargsThis.items()}
-
-                if any([subset_dict(d, kwargsThis) for d in exclQueryLst]):
-                    print('--skipping', kwargsThis)
-                    continue
-
-                del kwargsThis['mousename']
+                kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
                 channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename,
                                                        nDropPCA=nDropPCA, dropChannels=dropChannels,
                                                        estimator=estimator, **kwargsThis)
@@ -362,10 +235,13 @@ def plot_corr_mousephase_submouse(dataDB, mc, estimator, intervNames=None, dataT
 
             # Plot correlations
             rezMean = np.mean(list(rezDict.values()), axis=0)
-            for iMouse, mousename in enumerate(mice):
+
+            for mousename, rezMouse in rezDict.items():
+                iMouse = dps.param_index('mousename', mousename)
+
                 if mousename in rezDict.keys():
                     haveColorBar = iInterv == nInterv - 1
-                    imshow(figCorr, axCorr[iMouse][iInterv], rezDict[mousename] - rezMean,
+                    imshow(figCorr, axCorr[iMouse][iInterv], rezMouse - rezMean,
                            title='corr', haveColorBar=haveColorBar, limits=[-1,1], cmap='RdBu_r')
 
         # Save image
@@ -422,34 +298,21 @@ def plot_corr_mouse_2DF(dfDict, mc, estimator, intervNameMap, intervOrdMap,
 # Diff
 ###############################
 
-def plot_corr_consistency_l1_mouse(dataDB, nDropPCA=None, dropChannels=None, performances=None,
-                                   trialTypes=None, exclQueryLst=None):
+def plot_corr_consistency_l1_mouse(dataDB, nDropPCA=None, dropChannels=None, exclQueryLst=None, **kwargs): # performances=None, trialTypes=None,
+
+    assert 'intervName' in kwargs.keys(), 'Requires phases'
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', intervName='auto', datatype='auto', **kwargs)
     mice = sorted(dataDB.mice)
     nMice = len(mice)
 
-    argSweepDict = {
-        'mousename': dataDB.mice,
-        'intervName': dataDB.get_interval_names(),
-        'datatype': dataDB.get_data_types(),
-        'trialType': trialTypes if trialTypes is not None else [None],
-        'performance': performances if performances is not None else [None],
-    }
-
-    sweepDF = outer_product_df(argSweepDict)
-    if exclQueryLst is not None:
-        sweepDF = drop_rows_byquery(sweepDF, exclQueryLst)
-
-    sweepParam = list(argSweepDict.keys())
-    sweepParamNoMouse = list(set(sweepParam) - {'mousename'})
-
-    for paramExtra, dfExtra in sweepDF.groupby(['trialType', 'performance']):
-        plotExtraSuffix = '_'.join([str(s) for s in paramExtra if s is not None])
+    for paramExtraVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', 'datatype', 'intervName'])):
+        plotExtraSuffix = param_vals_to_suffix(paramExtraVals)
 
         dfColumns = ['datatype', 'phase', 'consistency']
         dfConsistency = pd.DataFrame(columns=dfColumns)
 
-        for paramVals, dfMouse in dfExtra.groupby(sweepParamNoMouse):
-            plotSuffix = '_'.join([str(s) for s in paramExtra + paramVals if s is not None])
+        for paramVals, dfMouse in dfTmp.groupby(dps.invert_param(['mousename'])):
+            plotSuffix = param_vals_to_suffix(paramVals)
             print(plotSuffix)
 
             corrLst = []
@@ -457,13 +320,10 @@ def plot_corr_consistency_l1_mouse(dataDB, nDropPCA=None, dropChannels=None, per
                 plotSuffix = '_'.join([str(s) for s in row.values])
                 print(plotSuffix)
 
-                kwargs = dict(row)
-                del kwargs['mousename']
-
-                # NOTE: zscore channels for each session to avoid session-wise effects
-                dataRSPLst = dataDB.get_neuro_data({'mousename' : row['mousename']},
+                kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
+                dataRSPLst = dataDB.get_neuro_data({'mousename' : row['mousename']},    # NOTE: zscore channels for each session to avoid session-wise effects
                                                     zscoreDim='rs',
-                                                    **kwargs)
+                                                    **kwargsThis)
 
                 dataRSP = np.concatenate(dataRSPLst, axis=0)
                 dataRP = np.mean(dataRSP, axis=1)
@@ -516,8 +376,8 @@ def plot_corr_consistency_l1_mouse(dataDB, nDropPCA=None, dropChannels=None, per
         plt.close()
 
 
-def plot_corr_consistency_l1_trialtype(dataDB, nDropPCA=None, dropChannels=None, performance=None,
-                                       trialTypes=None, datatype=None):
+def plot_corr_consistency_l1_trialtype(dataDB, nDropPCA=None, dropChannels=None, performance=None, trialTypes=None,
+                                       datatype=None):
     mice = sorted(dataDB.mice)
     if trialTypes is None:
         trialTypes = dataDB.get_data_types()
@@ -827,18 +687,25 @@ def plot_pca_consistency(dataDB, intervNames=None, dropFirst=None, dropChannels=
 # Movies
 #######################
 
-def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, trialTypes, #nDropPCA=None, #performances=None,
-                                   haveDelay=False, fontsize=20):
-    mice = sorted(dataDB.mice)
+def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, exclQueryLst=None, haveDelay=False, fontsize=20, **kwargs):   #nDropPCA=None, #performances=None,
+    assert 'trialType' in kwargs.keys(), 'Requires trial types'
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
+    nMice = dps.param_size('mousename')
+    nTrialType = dps.param_size('trialType')
 
-    for datatype in ['bn_trial', 'bn_session']:
+    for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', 'trialType'])):
+        plotSuffix = param_vals_to_suffix(paramVals)
+
         # Store all preprocessed data first
         dataDict = {}
-        for iMouse, mousename in enumerate(mice):
-            for iTT, trialType in enumerate(trialTypes):
-                print('Reading data, ', datatype, mousename, trialType)
+        for mousename, dfMouse in dfTmp.groupby(['mousename']):
+            for idx, row in dfMouse.iterrows():
+                trialType = row['trialType']
 
-                dataLst = get_data_list(dataDB, haveDelay, mousename, datatype=datatype, trialType=trialType)
+                print('Reading data, ', plotSuffix, mousename, trialType)
+
+                kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
+                dataLst = get_data_list(dataDB, haveDelay, mousename, **kwargsThis)
                 dataRSP = np.concatenate(dataLst, axis=0)
 
                 mc.set_data(dataRSP, 'rsp')
@@ -851,23 +718,22 @@ def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, trialTypes, #nDropPCA=
         assert len(shapeSet) == 1
         nTimes = shapeSet.pop()[0]
 
-        progBar = IntProgress(min=0, max=nTimes, description=datatype)
+        progBar = IntProgress(min=0, max=nTimes, description=plotSuffix)
         display(progBar)  # display the bar
         for iTime in range(nTimes):
-            fig, ax = plt.subplots(nrows=len(mice), ncols=len(trialTypes),
-                                   figsize=(4 * len(trialTypes), 4 * len(mice)), tight_layout=True)
+            fig, ax = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4*nTrialType, 4*nMice), tight_layout=True)
 
-            for iMouse, mousename in enumerate(mice):
+            for iMouse, mousename in enumerate(dps.param('mousename')):
                 ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-                for iTT, trialType in enumerate(trialTypes):
+                for iTT, trialType in enumerate(dps.param('trialType')):
                     ax[0][iTT].set_title(trialType, fontsize=fontsize)
                     # print(datatype, mousename)
 
                     rezS = dataDict[(mousename, trialType)][iTime]
 
-                    haveColorBar = iTT == len(trialTypes) - 1
+                    haveColorBar = iTT == nTrialType - 1
                     imshow(fig, ax[iMouse][iTT], rezS, limits=[-1, 1], cmap='jet', haveColorBar=haveColorBar)
 
-            plt.savefig('corr_mouseTrialType_' + '_'.join([datatype, str(iTime)]) + '.png')
+            plt.savefig('corr_mouseTrialType_' + plotSuffix + '_' + str(iTime) + '.png')
             plt.close()
             progBar.value += 1

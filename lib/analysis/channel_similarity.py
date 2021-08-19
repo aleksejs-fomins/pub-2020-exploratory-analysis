@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import combine_pvalues
 
-from mesostat.stat.connectomics import offdiag_idx
+from mesostat.utils.matrix import offdiag_idx
 from mesostat.metric.corr import corr_2D
 from mesostat.utils.signals.fit import polyfit_transform
 from mesostat.visualization.mpl_matrix import imshow

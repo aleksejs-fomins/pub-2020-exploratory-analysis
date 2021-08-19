@@ -2,47 +2,36 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import mannwhitneyu, wilcoxon, combine_pvalues
+from scipy.stats import wilcoxon #, mannwhitneyu, combine_pvalues
 from IPython.display import display
 from ipywidgets import IntProgress
 
-from mesostat.utils.pandas_helper import pd_append_row, pd_pivot, outer_product_df, drop_rows_byquery, pd_is_one_row, pd_query
+from mesostat.utils.pandas_helper import pd_append_row, pd_pivot, pd_is_one_row, pd_query, pd_first_row
 from mesostat.visualization.mpl_matrix import imshow
 
-from mesostat.stat.connectomics import offdiag_1D
-from mesostat.stat.testing.htests import classification_accuracy_weighted, rstest_twosided
+from mesostat.utils.matrix import offdiag_1D
+from mesostat.stat.testing.htests import classification_accuracy_weighted
 
-from lib.analysis.metric_helper import get_data_list
+from lib.common.datawrapper import get_data_list
+from lib.common.stat import test_metric_by_name
+from lib.common.param_sweep import DataParameterSweep, param_vals_to_suffix, pd_row_to_kwargs
 
 
 def subset_dict(d1, d2):
     return d1.items() <= d2.items()
 
 
-def _get_test_metric(metricName):
-    if metricName == 'accuracy':
-        return classification_accuracy_weighted
-    elif metricName == 'nlog_pval':
-        return lambda x,y: -np.log10(rstest_twosided(x, y))[1]
-    else:
-        raise ValueError('Unexpected metric name', metricName)
+def get_data_avg(dataDB, mousename, avgAxes=(0, 1), **kwargs):
+    dataLst = dataDB.get_neuro_data({'mousename': mousename}, **kwargs)
+    dataRSP = np.concatenate(dataLst, axis=0)
+    return np.mean(dataRSP, axis=avgAxes)
 
 
-def compute_mean_interval(dataDB, ds, trialTypesTrg, intervNames=None, skipExisting=False, exclQueryLst=None):
+def compute_mean_interval(dataDB, ds, trialTypeTrg, skipExisting=False, exclQueryLst=None, **kwargs):  # intervName=None,
     dataName = 'mean'
 
-    argSweepDict = {
-        'mousename': sorted(list(dataDB.mice)),
-        'intervName': intervNames if intervNames is not None else dataDB.get_interval_names(),
-        'datatype': dataDB.get_data_types(),
-        'trialType': trialTypesTrg
-    }
-
-    sweepDF = outer_product_df(argSweepDict)
-    if exclQueryLst is not None:
-        sweepDF = drop_rows_byquery(sweepDF, exclQueryLst)
-
-    for idx, row in sweepDF.iterrows():
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', trialType=trialTypeTrg, **kwargs)
+    for idx, row in dps.sweepDF.iterrows():
         print(list(row))
 
         for session in dataDB.get_sessions(row['mousename'], datatype=row['datatype']):
@@ -64,7 +53,7 @@ def compute_mean_interval(dataDB, ds, trialTypesTrg, intervNames=None, skipExist
 
 def significance_brainplot_mousephase_byaction(dataDB, ds, performance=None, #exclQueryLst=None,
                                                metric='accuracy', minTrials=10, limits=(0.5, 1.0), fontsize=20):
-    testFunc = _get_test_metric(metric)
+    testFunc = test_metric_by_name(metric)
 
     rows = ds.list_dsets_pd()
     rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
@@ -75,8 +64,7 @@ def significance_brainplot_mousephase_byaction(dataDB, ds, performance=None, #ex
     nMice = len(mice)
 
     for datatype, dfDataType in rows.groupby(['datatype']):
-        fig, ax = plt.subplots(nrows=nMice, ncols=nInterv,
-                               figsize=(4 * nInterv, 4 * nMice), tight_layout=True)
+        fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4 * nInterv, 4 * nMice), tight_layout=True)
 
         for iInterv, intervName in enumerate(intervNames):
             ax[0][iInterv].set_title(intervName, fontsize=fontsize)
@@ -120,136 +108,116 @@ def significance_brainplot_mousephase_byaction(dataDB, ds, performance=None, #ex
         plt.close()
 
 
-def activity_brainplot_mousephase(dataDB, trialTypes, vmin=None, vmax=None, drop6=False, fontsize=20):
-    mice = sorted(dataDB.mice)
-    intervals = dataDB.get_interval_names()
+def activity_brainplot_mouse(dataDB, xParamName, exclQueryLst=None, vmin=None, vmax=None, fontsize=20, **kwargs):
+    assert xParamName in kwargs.keys(), 'Requires ' + xParamName
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
+    nMice = dps.param_size('mousename')
+    nXParam = dps.param_size(xParamName)
 
-    for datatype in ['bn_trial', 'bn_session']:
-        for trialType in trialTypes:
-            fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals),
-                                   figsize=(4 * len(intervals), 4 * len(mice)), tight_layout=True)
+    for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', xParamName])):
+        plotSuffix = param_vals_to_suffix(paramVals)
+        print(plotSuffix)
 
-            for iMouse, mousename in enumerate(mice):
-                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-                for iInterv, intervName in enumerate(intervals):
-                    ax[0][iInterv].set_title(intervName, fontsize=fontsize)
-                    if (not drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
-                        print(datatype, mousename, intervName, drop6)
-                        dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype, intervName=intervName,
-                                                        trialType=trialType)
-                        dataRSP = np.concatenate(dataLst, axis=0)
-                        dataP = np.mean(dataRSP, axis=(0,1))
+        fig, ax = plt.subplots(nrows=nMice, ncols=nXParam, figsize=(4*nXParam, 4*nMice), tight_layout=True)
 
-                        haveColorBar = iInterv == len(intervals)-1
-                        dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataP, vmin=vmin, vmax=vmax, cmap='jet',
-                                                haveColorBar=haveColorBar)
+        for mousename, dfMouse in dfTmp.groupby(['mousename']):
+            iMouse = dps.param_index('mousename', mousename)
 
-            plt.savefig('activity_brainplot_mousephase_' + '_'.join([datatype, trialType]) + '.png')
-            plt.close()
-
-
-def activity_brainplot_mousetrialtype(dataDB, trialTypes, vmin=None, vmax=None, drop6=False, fontsize=20):
-    mice = sorted(dataDB.mice)
-    intervals = dataDB.get_interval_names()
-
-    for datatype in ['bn_trial', 'bn_session']:
-        for intervName in intervals:
-            fig, ax = plt.subplots(nrows=len(mice), ncols=len(trialTypes),
-                                   figsize=(4 * len(trialTypes), 4 * len(mice)), tight_layout=True)
-
-            for iMouse, mousename in enumerate(mice):
-                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-                if (not drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
-                    for iTT, trialType in enumerate(trialTypes):
-                        ax[0][iTT].set_title(trialType, fontsize=fontsize)
-                        print(datatype, mousename, intervName, drop6)
-                        dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
-                                                        intervName=intervName, trialType=trialType)
-                        dataRSP = np.concatenate(dataLst, axis=0)
-                        dataP = np.mean(dataRSP, axis=(0,1))
-
-                        haveColorBar = iTT == len(trialTypes)-1
-                        dataDB.plot_area_values(fig, ax[iMouse][iTT], dataP, vmin=vmin, vmax=vmax, cmap='jet',
-                                                haveColorBar=haveColorBar)
-
-            plt.savefig('activity_brainplot_mousetrialtype_' + '_'.join([datatype, intervName]) + '.png')
-            plt.close()
-
-
-def activity_brainplot_mousephase_subpre(dataDB, trialTypes, vmin=None, vmax=None, drop6=False, fontsize=20):
-    def _get_data_(dataDB, mousename, datatype, intervName, trialType):
-        dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype, intervName=intervName,
-                                        trialType=trialType)
-        dataRSP = np.concatenate(dataLst, axis=0)
-        return np.mean(dataRSP, axis=(0, 1))
-
-    datatype = 'bn_session'
-    mice = sorted(dataDB.mice)
-    intervals = dataDB.get_interval_names()
-
-    for trialType in trialTypes:
-        fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals),
-                               figsize=(4 * len(intervals), 4 * len(mice)), tight_layout=True)
-
-        for iMouse, mousename in enumerate(mice):
             ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+            for idx, row in dfMouse.iterrows():
+                xParamVal = row[xParamName]
+                iXParam = dps.param_index(xParamName, xParamVal)
 
-            dataPPre = _get_data_(dataDB, mousename, datatype, 'PRE', trialType)
+                ax[0][iXParam].set_title(xParamVal, fontsize=fontsize)
 
-            for iInterv, intervName in enumerate(intervals):
-                if intervName != 'PRE':
-                    ax[0][iInterv].set_title(intervName, fontsize=fontsize)
-                    if (not drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
-                        print(datatype, mousename, intervName, drop6)
-                        dataP = _get_data_(dataDB, mousename, datatype, intervName, trialType)
+                kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
+                dataLst = dataDB.get_neuro_data({'mousename': mousename}, **kwargsThis)
+                dataRSP = np.concatenate(dataLst, axis=0)
+                dataP = np.mean(dataRSP, axis=(0,1))
 
-                        dataPDelta = dataP - dataPPre
+                haveColorBar = iXParam == nXParam - 1
+                dataDB.plot_area_values(fig, ax[iMouse][iXParam], dataP, vmin=vmin, vmax=vmax, cmap='jet',
+                                        haveColorBar=haveColorBar)
 
-                        haveColorBar = iInterv == len(intervals)-1
-                        dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataPDelta, vmin=vmin, vmax=vmax, cmap='jet',
-                                                haveColorBar=haveColorBar)
-
-        plt.savefig('activity_brainplot_mousephase_subpre_' + '_'.join([datatype, trialType]) + '.png')
+        plt.savefig('activity_brainplot_mousephase_' + plotSuffix + '.png')
         plt.close()
 
 
-def activity_brainplot_mousephase_submouse(dataDB, trialTypes, vmin=None, vmax=None, drop6=False, fontsize=20):
-    def _get_data_(dataDB, mousename, datatype, intervName, trialType):
-        dataLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype, intervName=intervName,
-                                        trialType=trialType)
-        dataRSP = np.concatenate(dataLst, axis=0)
-        return np.mean(dataRSP, axis=(0, 1))
+def activity_brainplot_mousephase_subpre(dataDB, exclQueryLst=None, vmin=None, vmax=None, fontsize=20, **kwargs):
+    assert 'intervName' in kwargs.keys(), 'Requires phases'
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', datatype=['bn_session'], **kwargs)
+    nMice = dps.param_size('mousename')
+    nInterv = dps.param_size('intervName')
 
-    datatype = 'bn_session'
-    mice = sorted(dataDB.mice)
-    intervals = dataDB.get_interval_names()
+    for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', 'intervName'])):
+        plotSuffix = param_vals_to_suffix(paramVals)
+        print(plotSuffix)
 
-    for trialType in trialTypes:
-        fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals),
-                               figsize=(4 * len(intervals), 4 * len(mice)), tight_layout=True)
+        fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4 * nInterv, 4 * nMice), tight_layout=True)
+        for mousename, dfMouse in dfTmp.groupby(['mousename']):
+            iMouse = dps.param_index('mousename', mousename)
 
-        for iInterv, intervName in enumerate(intervals):
-            ax[0][iInterv].set_title(intervName, fontsize=fontsize)
+            ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
-            rezDict = {}
+            kwargsPre = pd_row_to_kwargs(pd_first_row(dfMouse), parseNone=True, dropKeys=['mousename', 'intervName'])
+            kwargsPre['intervName'] = 'PRE'
+            dataPPre = get_data_avg(dataDB, mousename, avgAxes=(0, 1), **kwargsPre)
 
-            for iMouse, mousename in enumerate(mice):
-                print(datatype, mousename, intervName, drop6)
-                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+            for idx, row in dfMouse.iterrows():
+                intervName = row['intervName']
+                iInterv = dps.param_index('intervName', intervName)
 
-                if (not drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
-                    rezDict[mousename] = _get_data_(dataDB, mousename, datatype, intervName, trialType)
+                if intervName != 'PRE':
+                    ax[0][iInterv].set_title(intervName, fontsize=fontsize)
 
-            dataPsub = np.mean(list(rezDict.values()), axis=0)
-            for iMouse, mousename in enumerate(mice):
-                if (not drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
-                    dataPDelta = rezDict[mousename] - dataPsub
+                    kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
+                    dataP = get_data_avg(dataDB, mousename, avgAxes=(0, 1), **kwargsThis)
 
-                    haveColorBar = iInterv == len(intervals)-1
+                    dataPDelta = dataP - dataPPre
+
+                    haveColorBar = iInterv == nInterv - 1
                     dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataPDelta, vmin=vmin, vmax=vmax, cmap='jet',
                                             haveColorBar=haveColorBar)
 
-        plt.savefig('activity_brainplot_mousephase_submouse_' + '_'.join([datatype, trialType]) + '.png')
+        plt.savefig('activity_brainplot_mousephase_subpre_' + plotSuffix + '.png')
+        plt.close()
+
+
+def activity_brainplot_mousephase_submouse(dataDB, exclQueryLst=None, vmin=None, vmax=None, drop6=False, fontsize=20, **kwargs):
+    assert 'intervName' in kwargs.keys(), 'Requires phases'
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
+    nMice = dps.param_size('mousename')
+    nInterv = dps.param_size('intervName')
+
+    for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', 'intervName'])):
+        plotSuffix = param_vals_to_suffix(paramVals)
+        print(plotSuffix)
+
+        fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4*nInterv, 4*nMice), tight_layout=True)
+
+        for intervName, dfInterv in dfTmp.groupby(['intervName']):
+            iInterv = dps.param_index('intervName', intervName)
+
+            ax[0][iInterv].set_title(intervName, fontsize=fontsize)
+
+            rezDict = {}
+            for idx, row in dfInterv.iterrows():
+                mousename = row['mousename']
+                kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
+                rezDict[mousename] = get_data_avg(dataDB, mousename, avgAxes=(0, 1), **kwargsThis)
+
+            dataPsub = np.mean(list(rezDict.values()), axis=0)
+            for idx, row in dfInterv.iterrows():
+                mousename = row['mousename']
+                iMouse = dps.param_index('mousename', mousename)
+                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+                dataPDelta = rezDict[mousename] - dataPsub
+
+                haveColorBar = iInterv == nInterv - 1
+                dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataPDelta, vmin=vmin, vmax=vmax, cmap='jet',
+                                        haveColorBar=haveColorBar)
+
+        plt.savefig('activity_brainplot_mousephase_submouse_' + plotSuffix + '.png')
         plt.close()
 
 
@@ -289,41 +257,41 @@ def activity_brainplot_mouse_2DF(dbDict, intervNameMap, intervOrdMap, trialTypes
                 plt.close()
 
 
-def classification_accuracy_brainplot_mousephase(dataDB, drop6=False, fontsize=20):
-    for datatype in ['bn_trial', 'bn_session']:
-        mice = sorted(dataDB.mice)
-        intervals = dataDB.get_interval_names()
+def classification_accuracy_brainplot_mousephase(dataDB, exclQueryLst, fontsize=20, trialType='auto', **kwargs):
+    assert 'intervName' in kwargs.keys(), 'Requires phases'
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
+    nMice = dps.param_size('mousename')
+    nInterv = dps.param_size('intervName')
 
-        fig, ax = plt.subplots(nrows=len(mice), ncols=len(intervals), figsize=(4 * len(intervals), 4 * len(mice)))
+    trialType = trialType if trialType != 'auto' else dataDB.get_trial_type_names()
 
-        for iMouse, mousename in enumerate(mice):
+    for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', 'intervName'])):
+        plotSuffix = param_vals_to_suffix(paramVals)
+        print(plotSuffix)
+
+        fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4 * nInterv, 4 * nMice))
+
+        for mousename, dfMouse in dfTmp.groupby(['mousename']):
+            iMouse = dps.param_index('mousename', mousename)
+
             ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-            for iInterv, intervName in enumerate(intervals):
+            for idx, row in dfMouse.iterrows():
+                intervName = row['intervName']
+                iInterv = dps.param_index('intervName', intervName)
                 ax[0][iInterv].set_title(intervName, fontsize=fontsize)
-                if (~drop6) or (intervName != 'REW') or (mousename != 'mou_6'):
-                    print(datatype, mousename, intervName)
 
-                    dataLst = [
-                        dataDB.get_neuro_data({'mousename': mousename}, datatype=datatype,
-                                              intervName=intervName, trialType=trialType)
-                        for trialType in ['Hit', 'FA', 'CR', 'Miss']
-                    ]
+                kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
+                dataRPLst = [get_data_avg(dataDB, mousename, avgAxes=1, **kwargsThis) for tt in trialType]
 
-                    # Stitch all sessions
-                    dataLst = [np.concatenate(data, axis=0) for data in dataLst]
+                # Split two textures
+                dataT1 = np.concatenate([dataRPLst[0], dataRPLst[1]])
+                dataT2 = np.concatenate([dataRPLst[2], dataRPLst[3]])
 
-                    # Average out time
-                    dataLst = [np.mean(data, axis=1) for data in dataLst]
+                svcAcc = [classification_accuracy_weighted(x[:, None], y[:, None]) for x, y in zip(dataT1.T, dataT2.T)]
 
-                    # Split two textures
-                    dataT1 = np.concatenate([dataLst[0], dataLst[1]])
-                    dataT2 = np.concatenate([dataLst[2], dataLst[3]])
+                dataDB.plot_area_values(fig, ax[iMouse][iInterv], svcAcc, vmin=0.5, vmax=1.0, cmap='jet')
 
-                    svcAcc = [classification_accuracy_weighted(x[:, None], y[:, None]) for x, y in zip(dataT1.T, dataT2.T)]
-
-                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], svcAcc, vmin=0.5, vmax=1.0, cmap='jet')
-
-        plt.savefig('classification_accuracy_brainplot_mousephase_' + '_'.join([datatype]) + '.png')
+        plt.savefig('classification_accuracy_brainplot_mousephase_' + plotSuffix + '.png')
         plt.close()
 
 
@@ -334,7 +302,7 @@ def classification_accuracy_brainplot_mousephase(dataDB, drop6=False, fontsize=2
 
 def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, performance=None, dropChannels=None,
                                                    metric='accuracy', limits=None):
-    testFunc = _get_test_metric(metric)
+    testFunc = test_metric_by_name(metric)
 
     rows = ds.list_dsets_pd()
     rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
@@ -481,17 +449,26 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTria
 # Movies
 #############################
 
-def activity_brainplot_movie_mousetrialtype(dataDB, trialTypes, vmin=None, vmax=None, haveDelay=False, fontsize=20):
-    mice = sorted(dataDB.mice)
+def activity_brainplot_movie_mousetrialtype(dataDB, exclQueryLst=None, vmin=None, vmax=None, haveDelay=False,
+                                            fontsize=20, **kwargs):
 
-    for datatype in ['bn_trial', 'bn_session']:
+    assert 'trialType' in kwargs.keys(), 'Requires trial types'
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
+    nMice = dps.param_size('mousename')
+    nTrialType = dps.param_size('trialType')
+
+    for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', 'trialType'])):
+        plotSuffix = param_vals_to_suffix(paramVals)
+
         # Store all preprocessed data first
         dataDict = {}
-        for iMouse, mousename in enumerate(mice):
-            for iTT, trialType in enumerate(trialTypes):
-                print('Reading data, ', datatype, mousename, trialType)
+        for mousename, dfMouse in dfTmp.groupby(['mousename']):
+            for idx, row in dfMouse.iterrows():
+                trialType = row['trialType']
+                print('Reading data, ', plotSuffix, mousename, trialType)
 
-                dataLst = get_data_list(dataDB, haveDelay, mousename, datatype=datatype, trialType=trialType)
+                kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
+                dataLst = get_data_list(dataDB, haveDelay, mousename, **kwargsThis)
                 dataRSP = np.concatenate(dataLst, axis=0)
                 dataSP = np.nanmean(dataRSP, axis=0)
                 dataDict[(mousename, trialType)] = dataSP
@@ -501,24 +478,23 @@ def activity_brainplot_movie_mousetrialtype(dataDB, trialTypes, vmin=None, vmax=
         assert len(shapeSet) == 1
         nTimes = shapeSet.pop()[0]
 
-        progBar = IntProgress(min=0, max=nTimes, description=datatype)
+        progBar = IntProgress(min=0, max=nTimes, description=plotSuffix)
         display(progBar)  # display the bar
         for iTime in range(nTimes):
-            fig, ax = plt.subplots(nrows=len(mice), ncols=len(trialTypes),
-                                   figsize=(4 * len(trialTypes), 4 * len(mice)), tight_layout=True)
+            fig, ax = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4 * nTrialType, 4 * nMice), tight_layout=True)
 
-            for iMouse, mousename in enumerate(mice):
+            for iMouse, mousename in enumerate(dps.param('mousename')):
                 ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-                for iTT, trialType in enumerate(trialTypes):
+                for iTT, trialType in enumerate(dps.param('trialType')):
                     ax[0][iTT].set_title(trialType, fontsize=fontsize)
                     # print(datatype, mousename)
 
                     dataP = dataDict[(mousename, trialType)][iTime]
 
-                    haveColorBar = iTT == len(trialTypes)-1
+                    haveColorBar = iTT == nTrialType - 1
                     dataDB.plot_area_values(fig, ax[iMouse][iTT], dataP, vmin=vmin, vmax=vmax, cmap='jet',
                                             haveColorBar=haveColorBar)
 
-            plt.savefig('activity_brainplot_mousetrialtype_' + '_'.join([datatype, str(iTime)]) + '.png')
+            plt.savefig('activity_brainplot_mousetrialtype_' + plotSuffix + '_' + str(iTime) + '.png')
             plt.close()
             progBar.value += 1

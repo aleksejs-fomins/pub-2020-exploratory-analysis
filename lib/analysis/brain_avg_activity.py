@@ -1,15 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
-from IPython.display import display
-from ipywidgets import IntProgress
 
 from mesostat.utils.arrays import numpy_merge_dimensions
-# from mesostat.utils.pandas_helper import outer_product_df, drop_rows_byquery
 
-from lib.analysis.metric_helper import metric_by_selector, get_data_list
-from lib.analysis.bulk_metrics import _dict_append_auto, metric_mouse_bulk
-
+from lib.common.datawrapper import get_data_list
 
 
 def plot_pca1_session(dataDB, mousename, session, trialTypesSelected=('Hit', 'CR')):
@@ -101,18 +96,3 @@ def plot_pca1_mouse(dataDB, trialTypesSelected=('Hit', 'CR'), skipReward=None):
         ax[0, 0].set_ylabel('Trial-average activity')
         ax[1, 0].set_ylabel('1st PCA trial-average')
         plt.show()
-
-
-def calc_metric_mouse_delay(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExisting=False, verbose=True,
-                            metricSettings=None, sweepSettings=None, minTrials=1, dropChannels=None,
-                            dataTypes='auto', trialTypeNames=None, perfNames=None, intervNames=None, timeAvg=False,
-                            exclQueryLst=None, haveDelay=False):
-
-    # Proxy that allows delay averaging upon data aquisition
-    dataFunc = lambda dataDB, selector, **kwargs: get_data_list(dataDB, haveDelay, selector['mousename'], **kwargs)
-
-    metric_mouse_bulk(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExisting=skipExisting, verbose=verbose,
-                      metricSettings=metricSettings, sweepSettings=sweepSettings, minTrials=minTrials,
-                      dropChannels=dropChannels, dataTypes=dataTypes, trialTypeNames=trialTypeNames,
-                      perfNames=perfNames, intervNames=intervNames, timeAvg=timeAvg,
-                      exclQueryLst=exclQueryLst, dataFunc=dataFunc)

@@ -9,8 +9,8 @@ from pathlib import Path
 
 from IPython.display import display
 
+from mesostat.utils.matrix import drop_channels, offdiag_1D, matrix_copy_triangle_symmetric
 from mesostat.stat.stat import continuous_empirical_CDF
-from mesostat.stat.connectomics import offdiag_1D, matrix_copy_triangle_symmetric
 from mesostat.stat.classification import confusion_matrix
 from mesostat.stat.clustering import cluster_dist_matrix_min, cluster_plot
 
@@ -29,17 +29,6 @@ def _vals_to_df(vals, valKey, keyDict):
     for k, v in keyDict.items():
         df[k] = v
     return df
-
-
-def _mat_drop_channels(m, dropChannels=None):
-    if dropChannels is None:
-        return m
-    else:
-        mRez = np.copy(m)
-        for iCh in sorted(dropChannels)[::-1]:  # Sort in descending order, so index still correct after deletion
-            mRez = np.concatenate([mRez[:iCh], mRez[iCh + 1:]], axis=0)
-            mRez = np.concatenate([mRez[:, :iCh], mRez[:, iCh + 1:]], axis=1)
-        return mRez
 
 
 # Compute average PID over two out of three triplets
@@ -508,7 +497,7 @@ def plot_2D_avg(dataDB, h5fname, dfSummary, paramKey, paramNames, dropChannels=N
                         idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
                         Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
                         Mrez2D = np.nansum(Mrez3D, axis=avgAxis) / (nChannel - 2)  # Target can't be either of the sources
-                        Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
+                        Mrez2D = drop_channels(Mrez2D, dropIdxs=dropChannels)
 
                         if pidType != 'unique':
                             Mrez2D = matrix_copy_triangle_symmetric(Mrez2D, source='U')
@@ -551,7 +540,7 @@ def plot_2D_target(dataDB, h5fname, dfSummary, trgChName, paramKey, paramNames, 
                         idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
                         Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
                         Mrez2D = Mrez3D[:, :, trgIdx]
-                        Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
+                        Mrez2D = drop_channels(Mrez2D, dropIdxs=dropChannels)
 
                         if pidType != 'unique':
                             Mrez2D = matrix_copy_triangle_symmetric(Mrez2D, source='U')
@@ -594,7 +583,7 @@ def plot_2D_target_mousephase_subpre(dataDB, h5fname, dfSummary, trgChName, drop
                         idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
                         Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
                         Mrez2D = Mrez3D[:, :, trgIdx]
-                        Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
+                        Mrez2D = drop_channels(Mrez2D, dropIdxs=dropChannels)
 
                         if pidType != 'unique':
                             Mrez2D = matrix_copy_triangle_symmetric(Mrez2D, source='U')
@@ -641,7 +630,7 @@ def plot_2D_target_mousephase_submouse(dataDB, h5fname, dfSummary, trgChName, dr
                         idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
                         Mrez3D = list_to_3Dmat(idxs, vals, nChannel)
                         Mrez2D = Mrez3D[:, :, trgIdx]
-                        Mrez2D = _mat_drop_channels(Mrez2D, dropChannels=dropChannels)
+                        Mrez2D = drop_channels(Mrez2D, dropIdxs=dropChannels)
 
                         if pidType != 'unique':
                             Mrez2D = matrix_copy_triangle_symmetric(Mrez2D, source='U')

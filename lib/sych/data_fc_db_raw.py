@@ -175,6 +175,9 @@ class DataFCDatabase:
     def get_performance_mouse(self, mousename):
         return [self.get_performance(session, mousename) for session in self.get_sessions(mousename)]
 
+    def get_performance_names(self):
+        return ['naive', 'expert']
+
     def get_expert_session_idxs(self, mousename):
         path = self.dataPathsDict[mousename]
         with h5py.File(path, 'r') as h5file:

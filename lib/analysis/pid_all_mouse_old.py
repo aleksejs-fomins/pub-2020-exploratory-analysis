@@ -10,7 +10,7 @@ from sklearn.metrics import cohen_kappa_score
 from IPython.display import display
 
 from mesostat.stat.stat import continuous_empirical_CDF
-from mesostat.stat.connectomics import tril_1D, offdiag_1D
+from mesostat.utils.matrix import offdiag_1D, tril_1D
 from mesostat.stat.classification import confusion_matrix
 from mesostat.stat.clustering import cluster_dist_matrix_min, cluster_plot
 

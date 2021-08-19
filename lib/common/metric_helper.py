@@ -3,60 +3,10 @@ from IPython.display import display
 from ipywidgets import IntProgress
 
 from mesostat.utils.arrays import numpy_nonelist_to_array
-from mesostat.utils.signals.resample import resample_kernel_same_interv
 
-def dimord_to_labels(dimOrd):
-    dimOrdDict = {
-        'p': 'channels',
-        'r': 'trials',
-        's': 'timesteps'
-    }
-
-    return tuple([dimOrdDict[d] for d in dimOrd])
-
-
-def _resample_delay(dataRSP, tStart, tStop, FPS=20.0, padReward=False):
-    iStart = int(tStart * FPS)
-    iStop = int(tStop * FPS)
-    nDelTrg = int(2.0 * FPS)
-    nRewTrg = int(1.0 * FPS)
-
-    dataPRE = dataRSP[:, :iStart]
-    dataDEL = dataRSP[:, iStart:iStop]
-    dataREW = dataRSP[:, iStop:]
-
-    nDel = dataDEL.shape[1]
-    nRew = dataREW.shape[1]
-
-    # Resample delay to 2s
-    W = resample_kernel_same_interv(nDel, nDelTrg)
-    dataDEL = np.einsum('lj,ijk->ilk', W, dataDEL)
-
-    if padReward:
-        if nRew > nRewTrg:
-            # Crop reward to 1 second if it exceeds
-            dataREW = dataREW[:, :nRewTrg]
-        elif nRew < nRewTrg:
-            # Pad reward with NAN if it is too short
-            tmp = np.full((dataREW.shape[0], nRewTrg, dataREW.shape[2]), np.nan)
-            tmp[:, :nRew] = dataREW
-            dataREW = tmp
-
-    return np.concatenate([dataPRE, dataDEL, dataREW], axis=1)
-
-
-def get_data_list(dataDB, haveDelay, mousename, **kwargs):
-    if not haveDelay:
-        dataRSPLst = dataDB.get_neuro_data({'mousename': mousename}, **kwargs)
-    else:
-        dataRSPLst = []
-        for session in dataDB.get_sessions(mousename):
-            dataRSP = dataDB.get_neuro_data({'session': session}, **kwargs)[0]
-            delayStart = dataDB.get_interval_times(session, mousename, 'DEL')[0][0]
-            delayEnd = delayStart + dataDB.get_delay_length(mousename, session)
-            dataRSPLst += [_resample_delay(dataRSP, delayStart, delayEnd, FPS=dataDB.targetFreq, padReward=True)]
-
-    return dataRSPLst
+from lib.common.verbosity import dimord_to_labels
+from lib.common.param_sweep import DataParameterSweep
+from lib.common.datawrapper import get_data_list
 
 
 def metric_by_session(dataDB, mc, ds, mousename, metricName, dimOrdTrg,
@@ -176,3 +126,76 @@ def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
 
             ds.delete_rows(dsDataLabels, verbose=False)
             ds.save_data(dataName, np.array(rez), attrsDict)
+
+
+def calc_metric_mouse(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExisting=False, verbose=True,
+                      metricSettings=None, sweepSettings=None, minTrials=1, dropChannels=None,
+                      timeAvg=False, exclQueryLst=None, dataFunc=None, **kwargs):  # dataTypes='auto', trialTypeNames=None, perfNames=None, intervNames=None
+
+    autoAppendDict = {'trialType' : ['None'], 'performance': ['None']}
+    dps = DataParameterSweep(dataDB, exclQueryLst, autoAppendDict=autoAppendDict, mousename='auto', **kwargs)
+
+    progBar = IntProgress(min=0, max=len(dps.sweepDF), description=nameSuffix)
+    display(progBar)  # display the bar
+
+    for idx, row in dps.sweepDF.iterrows():
+        kwargs = dict(row)
+        del kwargs['mousename']
+
+        zscoreDim = 'rs' if kwargs['datatype'] == 'raw' else None
+
+        if verbose:
+            print(metricName, nameSuffix, kwargs)
+
+        metric_by_selector(dataDB, mc, ds, {'mousename': row['mousename']}, metricName, dimOrdTrg,
+                           dataName=nameSuffix,
+                           skipExisting=skipExisting,
+                           dropChannels=dropChannels,
+                           minTrials=minTrials,
+                           timeAvg=timeAvg,
+                           zscoreDim=zscoreDim,
+                           metricSettings=metricSettings,
+                           sweepSettings=sweepSettings,
+                           dataFunc=dataFunc,
+                           **kwargs)
+
+        progBar.value += 1
+
+
+def calc_metric_session(dataDB, mc, ds, metricName, nameSuffix, minTrials=1, skipExisting=False,
+                        metricSettings=None, sweepSettings=None, dropChannels=None,
+                        verbose=True, exclQueryLst=None, **kwargs):  # dataTypes='auto', trialTypeNames=None, perfNames=None, intervNames=None,
+
+    autoAppendDict = {'trialType' : ['None'], 'performance': ['None']}
+    dps = DataParameterSweep(dataDB, exclQueryLst, autoAppendDict=autoAppendDict, mousename='auto', **kwargs)
+
+    progBar = IntProgress(min=0, max=len(dps.sweepDF), description=nameSuffix)
+    display(progBar)  # display the bar
+
+    for idx, row in dps.sweepDF.iterrows():
+        kwargs = dict(row)
+        del kwargs['mousename']
+
+        zscoreDim = 'rs' if kwargs['datatype'] == 'raw' else None
+
+        if verbose:
+            print(metricName, nameSuffix, kwargs)
+
+        metric_by_session(dataDB, mc, ds, row['mousename'], metricName, '',
+                          skipExisting=skipExisting,
+                          dropChannels=dropChannels,
+                          dataName=nameSuffix,
+                          minTrials=minTrials,
+                          zscoreDim=zscoreDim,
+                          metricSettings=metricSettings,
+                          sweepSettings=sweepSettings, timeAvg=True,
+                          **kwargs)
+
+        progBar.value += 1
+
+
+def calc_metric_mouse_delay(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, haveDelay=False, **kwargs):
+    # Proxy that allows delay averaging upon data aquisition
+    dataFunc = lambda dataDB, selector, **kwargs: get_data_list(dataDB, haveDelay, selector['mousename'], **kwargs)
+
+    calc_metric_mouse(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, dataFunc=dataFunc, **kwargs)

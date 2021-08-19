@@ -1,31 +1,24 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from mesostat.stat.connectomics import tril_1D
+from mesostat.utils.matrix import tril_1D
 from mesostat.metric.corr import corr_2D
 from mesostat.visualization.mpl_violin import violins_labeled
-from mesostat.utils.pandas_helper import outer_product_df
+
+from lib.common.param_sweep import DataParameterSweep, pd_row_to_kwargs
 
 
-def corr_evaluation(dataDB, mc, estimator, datatype, intervNames=None, trialTypes=None, minTrials=50):
+def corr_evaluation(dataDB, mc, estimator, exclQueryLst=None, minTrials=50, **kwargs):
     resultsDict = {'corr' : {}, 'pval' : {}}
 
-    argSweepDict = {
-        'mousename' : dataDB.mice,
-        'intervName' : intervNames if intervNames is not None else dataDB.get_interval_names()
-    }
-    if trialTypes is not None:
-        argSweepDict['trialType'] = trialTypes
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
 
-    sweepDF = outer_product_df(argSweepDict)
-
-    for idx, row in sweepDF.iterrows():
-        kwargs = dict(row)
-        del kwargs['mousename']
+    for idx, row in dps.sweepDF.iterrows():
+        kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
 
         results = []
         for session in dataDB.get_sessions(row['mousename']):
-            dataRSP = dataDB.get_neuro_data({'session' : session}, datatype=datatype, **kwargs)[0]
+            dataRSP = dataDB.get_neuro_data({'session' : session}, **kwargsThis)[0]
 
             nTrials, nTime, nChannel = dataRSP.shape
 

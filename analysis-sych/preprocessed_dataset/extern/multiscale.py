@@ -13,7 +13,7 @@ from mesostat.metric.metric import MetricCalculator
 from mesostat.utils.hdf5_io import DataStorage
 
 from lib.sych.data_fc_db_raw import DataFCDatabase
-from lib.analysis.metric_helper import metric_by_session
+from lib.common.metric_helper import metric_by_session
 
 # tmp_path = root_path_data if 'root_path_data' in locals() else "./"
 params = {}
