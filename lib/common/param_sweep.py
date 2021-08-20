@@ -4,7 +4,7 @@ from mesostat.utils.pandas_helper import outer_product_df, drop_rows_byquery
 def _auto_param(dataDB, paramName, autoAppendDict=None):
     if paramName == 'mousename':
         rez = sorted(dataDB.mice)
-    if paramName == 'datatype':
+    elif paramName == 'datatype':
         rez =  dataDB.get_data_types()
     elif paramName == 'trialType':
         rez =  dataDB.get_trial_type_names()
@@ -22,7 +22,7 @@ def _auto_param(dataDB, paramName, autoAppendDict=None):
 
 
 def param_vals_to_suffix(paramVals):
-    if isinstance(paramVals, list):
+    if isinstance(paramVals, list) or isinstance(paramVals, tuple):
         return '_'.join([str(s) for s in paramVals])
     else:
         return str(paramVals)   # Note pandas.groupby does not return list if has only one parameter

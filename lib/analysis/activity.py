@@ -51,63 +51,6 @@ def compute_mean_interval(dataDB, ds, trialTypeTrg, skipExisting=False, exclQuer
                 ds.save_data(dataName, dataRP, attrsDict)
 
 
-def significance_brainplot_mousephase_byaction(dataDB, ds, performance=None, #exclQueryLst=None,
-                                               metric='accuracy', minTrials=10, limits=(0.5, 1.0), fontsize=20):
-    testFunc = test_metric_by_name(metric)
-
-    rows = ds.list_dsets_pd()
-    rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
-
-    intervNames = dataDB.get_interval_names()
-    mice = sorted(dataDB.mice)
-    nInterv = len(intervNames)
-    nMice = len(mice)
-
-    for datatype, dfDataType in rows.groupby(['datatype']):
-        fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4 * nInterv, 4 * nMice), tight_layout=True)
-
-        for iInterv, intervName in enumerate(intervNames):
-            ax[0][iInterv].set_title(intervName, fontsize=fontsize)
-            for iMouse, mousename in enumerate(mice):
-                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-
-                pSig = []
-                queryDict = {'mousename': mousename, 'intervName': intervName}
-
-                # if (exclQueryLst is None) or all([not subset_dict(queryDict, d) for d in exclQueryLst]) :
-                rowsSession = pd_query(dfDataType, queryDict)
-
-                if len(rowsSession) > 0:
-                    for session, rowsTrial in rowsSession.groupby(['session']):
-
-                        if (performance is None) or dataDB.is_matching_performance(session, performance, mousename=mousename):
-                            dataThis = []
-                            for idx, row in rowsTrial.iterrows():
-                                dataThis += [ds.get_data(row['dset'])]
-
-                            nChannels = dataThis[0].shape[1]
-                            nTrials1 = dataThis[0].shape[0]
-                            nTrials2 = dataThis[1].shape[0]
-
-                            if (nTrials1 < minTrials) or (nTrials2 < minTrials):
-                                print(session, datatype, intervName, 'too few trials', nTrials1, nTrials2, ';; skipping')
-                            else:
-                                pSig += [[testFunc(dataThis[0][:, iCh], dataThis[1][:, iCh]) for iCh in range(nChannels)]]
-
-                    # pSigDict[mousename] = np.sum(pSig, axis=0)
-                    print(intervName, mousename, np.array(pSig).shape)
-
-                    pSigAvg = np.mean(pSig, axis=0)
-
-                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], pSigAvg,
-                                            vmin=limits[0], vmax=limits[1], cmap='jet',
-                                            haveColorBar=iInterv==nInterv-1)
-
-        plotSuffix = '_'.join([datatype, str(performance), metric])
-        fig.savefig('significance_brainplot_'+plotSuffix+'.png')
-        plt.close()
-
-
 def activity_brainplot_mouse(dataDB, xParamName, exclQueryLst=None, vmin=None, vmax=None, fontsize=20, **kwargs):
     assert xParamName in kwargs.keys(), 'Requires ' + xParamName
     dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
@@ -159,7 +102,7 @@ def activity_brainplot_mousephase_subpre(dataDB, exclQueryLst=None, vmin=None, v
 
             ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
-            kwargsPre = pd_row_to_kwargs(pd_first_row(dfMouse), parseNone=True, dropKeys=['mousename', 'intervName'])
+            kwargsPre = pd_row_to_kwargs(pd_first_row(dfMouse)[1], parseNone=True, dropKeys=['mousename', 'intervName'])
             kwargsPre['intervName'] = 'PRE'
             dataPPre = get_data_avg(dataDB, mousename, avgAxes=(0, 1), **kwargsPre)
 
@@ -255,6 +198,63 @@ def activity_brainplot_mouse_2DF(dbDict, intervNameMap, intervOrdMap, trialTypes
 
                 plt.savefig('activity_brainplot_mouse_2df_' + '_'.join([datatype, trialType, intervLabel]) + '.png')
                 plt.close()
+
+
+def significance_brainplot_mousephase_byaction(dataDB, ds, performance=None, #exclQueryLst=None,
+                                               metric='accuracy', minTrials=10, limits=(0.5, 1.0), fontsize=20):
+    testFunc = test_metric_by_name(metric)
+
+    rows = ds.list_dsets_pd()
+    rows['mousename'] = [dataDB.find_mouse_by_session(session) for session in rows['session']]
+
+    intervNames = dataDB.get_interval_names()
+    mice = sorted(dataDB.mice)
+    nInterv = len(intervNames)
+    nMice = len(mice)
+
+    for datatype, dfDataType in rows.groupby(['datatype']):
+        fig, ax = plt.subplots(nrows=nMice, ncols=nInterv, figsize=(4 * nInterv, 4 * nMice), tight_layout=True)
+
+        for iInterv, intervName in enumerate(intervNames):
+            ax[0][iInterv].set_title(intervName, fontsize=fontsize)
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+
+                pSig = []
+                queryDict = {'mousename': mousename, 'intervName': intervName}
+
+                # if (exclQueryLst is None) or all([not subset_dict(queryDict, d) for d in exclQueryLst]) :
+                rowsSession = pd_query(dfDataType, queryDict)
+
+                if len(rowsSession) > 0:
+                    for session, rowsTrial in rowsSession.groupby(['session']):
+
+                        if (performance is None) or dataDB.is_matching_performance(session, performance, mousename=mousename):
+                            dataThis = []
+                            for idx, row in rowsTrial.iterrows():
+                                dataThis += [ds.get_data(row['dset'])]
+
+                            nChannels = dataThis[0].shape[1]
+                            nTrials1 = dataThis[0].shape[0]
+                            nTrials2 = dataThis[1].shape[0]
+
+                            if (nTrials1 < minTrials) or (nTrials2 < minTrials):
+                                print(session, datatype, intervName, 'too few trials', nTrials1, nTrials2, ';; skipping')
+                            else:
+                                pSig += [[testFunc(dataThis[0][:, iCh], dataThis[1][:, iCh]) for iCh in range(nChannels)]]
+
+                    # pSigDict[mousename] = np.sum(pSig, axis=0)
+                    print(intervName, mousename, np.array(pSig).shape)
+
+                    pSigAvg = np.mean(pSig, axis=0)
+
+                    dataDB.plot_area_values(fig, ax[iMouse][iInterv], pSigAvg,
+                                            vmin=limits[0], vmax=limits[1], cmap='jet',
+                                            haveColorBar=iInterv==nInterv-1)
+
+        plotSuffix = '_'.join([datatype, str(performance), metric])
+        fig.savefig('significance_brainplot_'+plotSuffix+'.png')
+        plt.close()
 
 
 def classification_accuracy_brainplot_mousephase(dataDB, exclQueryLst, fontsize=20, trialType='auto', **kwargs):
@@ -453,6 +453,7 @@ def activity_brainplot_movie_mousetrialtype(dataDB, exclQueryLst=None, vmin=None
                                             fontsize=20, **kwargs):
 
     assert 'trialType' in kwargs.keys(), 'Requires trial types'
+    assert 'intervName' not in kwargs.keys(), 'Movie intended for full range'
     dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
     nMice = dps.param_size('mousename')
     nTrialType = dps.param_size('trialType')
