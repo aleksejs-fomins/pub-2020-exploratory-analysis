@@ -3,7 +3,7 @@ import os
 import numpy as np
 
 from mesostat.utils.matlab_helper import loadmat, matstruct2dict
-from mesostat.utils.dictionaries import merge_dicts
+from mesostat.utils.dictionaries import merge_dicts_of_lists
 
 from lib.sych.mouse_performance import mouse_performance_single_session
 
@@ -46,7 +46,7 @@ def read_neuro_perf(folderpath, verbose=True, withPerformance=True):
                 print("Calculated performance", performance, "does not match external", performanceExt)
     
     # Convert trials structure to a dictionary
-    behavior['trials'] = merge_dicts([matstruct2dict(obj) for obj in behavior['trials']])
+    behavior['trials'] = merge_dicts_of_lists([matstruct2dict(obj) for obj in behavior['trials']])
     
     # CONSISTENCY TEST 1 - If behavioural trials are more than neuronal, crop:
     for behKey in behKeys:
@@ -149,7 +149,7 @@ def read_lick(folderpath, verbose=True):
 
     # NOTE: lick_trials['licks']['lick_vector'] is just a repeat from above lick_traces file
 #     lick_trials['licks'] = merge_dicts([matstruct2dict(obj) for obj in lick_trials['licks']])
-    lick_trials['trials'] = merge_dicts([matstruct2dict(obj) for obj in lick_trials['trials']])
+    lick_trials['trials'] = merge_dicts_of_lists([matstruct2dict(obj) for obj in lick_trials['trials']])
     fixearly = lambda trial : np.nan if trial=='Early' else trial
     lick_trials['trials']['reward_time'] = [fixearly(trial) for trial in lick_trials['trials']['reward_time']]
     rez['reward_time'] = np.array(lick_trials['trials']['reward_time'], dtype=float) * TIMESCALE_TRACES

@@ -76,7 +76,7 @@ def metric_by_selector(dataDB, mc, ds, selector, metricName, dimOrdTrg,
     # Drop all arguments that were not specified
     # In some use cases non-specified arguments are not implemented
     #kwargs = {'trialType': trialType, 'zscoreDim': zscoreDim, 'datatype': datatype, 'performance': performance}
-    kwargs = {k: str(v) for k, v in kwargs.items() if v is not None}
+    kwargs = {k: str(v) for k, v in kwargs.items() if (v is not None) and (v != 'None')}
     print(kwargs)
 
     if dataName is None:
@@ -162,7 +162,7 @@ def calc_metric_mouse(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, skipExi
         progBar.value += 1
 
 
-def calc_metric_session(dataDB, mc, ds, metricName, nameSuffix, minTrials=1, skipExisting=False,
+def calc_metric_session(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, minTrials=1, skipExisting=False,
                         metricSettings=None, sweepSettings=None, dropChannels=None,
                         verbose=True, exclQueryLst=None, **kwargs):  # dataTypes='auto', trialTypeNames=None, perfNames=None, intervNames=None,
 
@@ -181,7 +181,7 @@ def calc_metric_session(dataDB, mc, ds, metricName, nameSuffix, minTrials=1, ski
         if verbose:
             print(metricName, nameSuffix, kwargs)
 
-        metric_by_session(dataDB, mc, ds, row['mousename'], metricName, '',
+        metric_by_session(dataDB, mc, ds, row['mousename'], metricName, dimOrdTrg,
                           skipExisting=skipExisting,
                           dropChannels=dropChannels,
                           dataName=nameSuffix,
@@ -194,8 +194,10 @@ def calc_metric_session(dataDB, mc, ds, metricName, nameSuffix, minTrials=1, ski
         progBar.value += 1
 
 
-def calc_metric_mouse_delay(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, haveDelay=False, **kwargs):
+def calc_metric_mouse_delay(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, haveDelay=False,
+                            tTrgDelay=2.0, tTrgRew=1.0, **kwargs):
     # Proxy that allows delay averaging upon data aquisition
-    dataFunc = lambda dataDB, selector, **kwargs: get_data_list(dataDB, haveDelay, selector['mousename'], **kwargs)
+    dataFunc = lambda dataDB, selector, **kwargs: get_data_list(dataDB, haveDelay, selector['mousename'],
+                                                                tTrgDelay=tTrgDelay, tTrgRew=tTrgRew,**kwargs)
 
     calc_metric_mouse(dataDB, mc, ds, metricName, dimOrdTrg, nameSuffix, dataFunc=dataFunc, **kwargs)

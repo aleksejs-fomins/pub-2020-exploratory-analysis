@@ -12,19 +12,8 @@ from mesostat.visualization.mpl_barplot import sns_barplot
 none2all = lambda x: x if x is not None else 'All'
 
 
-# Switch between 3 cases:
-#    If x is None, do nothing
-#    If x='auto', use provided function result for the dictionary element
-#    Otherwise, use provided x value for the dictionary element
-# def _dict_append_auto(d, key, x, xAutoFunc):
-#     if x == 'auto':
-#         d[key] = xAutoFunc()  # Auto may be expensive or not defined for some cases, only call when needed
-#     elif x is not None:
-#         d[key] = x
-
-
-def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, ylim=None, yscale=None,
-                     verbose=True, xFunc=None):#, dropCols=None):
+def plot_metric_bulk_1D(dataDB, ds, metricName, nameSuffix, prepFunc=None, xlim=None, ylim=None, yscale=None,
+                     verbose=True, xFunc=None, haveTimeLabels=False):#, dropCols=None):
     # 1. Extract all results for this test
     dfAll = ds.list_dsets_pd().fillna('None')
     # if dropCols is not None:
@@ -38,7 +27,7 @@ def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, ylim=
     colsExcl = list(set(dfAnalysis.columns) - {'mousename', 'dset'})
 
     for colVals, dfSub in dfAnalysis.groupby(colsExcl):
-        plt.figure()
+        fig, ax = plt.subplots(figsize=(4, 4))
 
         if verbose:
             print(list(colVals))
@@ -47,6 +36,7 @@ def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, ylim=
             print(list(rowMouse.values))
 
             dataThis = ds.get_data(rowMouse['dset'])
+            assert dataThis.ndim == 1, 'Only using 1D data for this plot function'
 
             if prepFunc is not None:
                 dataThis = prepFunc(dataThis)
@@ -59,18 +49,23 @@ def plot_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, ylim=
             x = np.arange(len(dataThis)) if xFunc is None else np.array(xFunc(rowMouse['mousename'], len(dataThis)))
             x, dataThis = drop_nan_rows([x, dataThis])
 
-            plt.plot(x, dataThis, label=rowMouse['mousename'])
+            ax.plot(x, dataThis, label=rowMouse['mousename'])
 
         if yscale is not None:
-            plt.yscale(yscale)
+            ax.set_yscale(yscale)
+
+        if haveTimeLabels is not None:
+            dataDB.label_plot_timestamps(ax, linecolor='y', textcolor='k', shX=-0.5, shY=0.05)
 
         dataName = rowMouse.drop(['dset', 'mousename'])
         dataName = '_'.join([str(el) for el in dataName])
 
-        plt.legend()
-        plt.xlim(xlim)
-        plt.ylim(ylim)
-        plt.savefig('pics/' + dataName + '.png')
+        ax.legend()
+        ax.set_xlim(xlim)
+        ax.set_ylim(ylim)
+        ax.set_xlabel(nameSuffix)
+        ax.set_ylabel(metricName)
+        plt.savefig('pics/' + dataName + '.png', dpi=200)
         plt.close()
 
 

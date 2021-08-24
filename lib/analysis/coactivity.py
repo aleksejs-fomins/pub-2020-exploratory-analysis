@@ -6,7 +6,7 @@ from sklearn.decomposition import PCA
 from IPython.display import display
 from ipywidgets import IntProgress
 
-from mesostat.utils.signals.filter import zscore, drop_PCA
+from mesostat.utils.signals.filter import zscore, drop_PCA, drop_PCA_3D
 import mesostat.stat.consistency.pca as pca
 from mesostat.utils.matrix import offdiag_1D, tril_1D
 from mesostat.utils.pandas_helper import pd_append_row, pd_pivot #, outer_product_df, drop_rows_byquery, pd_is_one_row, pd_query
@@ -49,35 +49,51 @@ def _plot_corr_1D(fig, ax, channelLabels, rez2D, thrMono):
         ax.axhline(y=0, color='pink', linestyle='--')
 
 
-def calc_corr_mouse(dataDB, mc, mousename, nDropPCA=1, dropChannels=None, estimator='corr', **kwargs):
+def calc_corr_mouse(dataDB, mc, mousename, nDropPCA=1, dropChannels=None, strategy='mean', estimator='corr', **kwargs):
     # NOTE: zscore channels for each session to avoid session-wise effects
-    dataRSPLst = dataDB.get_neuro_data({'mousename': mousename},
-                                       zscoreDim='rs',
-                                       **kwargs)
+    dataRSPLst = dataDB.get_neuro_data({'mousename': mousename}, zscoreDim='rs', **kwargs)
     dataRSP = np.concatenate(dataRSPLst, axis=0)
-    dataRP = np.mean(dataRSP, axis=1)
     channelLabels = np.array(dataDB.get_channel_labels())
 
-    if nDropPCA is not None:
-        dataRP = drop_PCA(dataRP, nDropPCA)
+    if strategy == 'mean':
+        dataRP = np.mean(dataRSP, axis=1)
+        if nDropPCA is not None:
+            dataRP = drop_PCA(dataRP, nDropPCA)
 
-    if dropChannels is not None:
-        nChannels = dataRP.shape[1]
-        channelMask = np.ones(nChannels).astype(bool)
-        channelMask[dropChannels] = 0
-        dataRP = dataRP[:, channelMask]
-        channelLabels = channelLabels[channelMask]
+        if dropChannels is not None:
+            nChannels = dataRP.shape[1]
+            channelMask = np.ones(nChannels).astype(bool)
+            channelMask[dropChannels] = 0
+            dataRP = dataRP[:, channelMask]
+            channelLabels = channelLabels[channelMask]
 
-    mc.set_data(dataRP, 'rp')
-    # mc.set_data(dataRSP, 'rsp')
-    # metricSettings={'timeAvg' : True, 'havePVal' : False, 'estimator' : estimator}
-    metricSettings = {'havePVal': False, 'estimator': estimator}
-    rez2D = mc.metric3D('corr', '', metricSettings=metricSettings)
-    return channelLabels, rez2D
+        mc.set_data(dataRP, 'rp')
+        metricSettings = {'havePVal': False, 'estimator': estimator}
+        rez2D = mc.metric3D('corr', '', metricSettings=metricSettings)
+        return channelLabels, rez2D
+    elif strategy == 'sweep':
+        if nDropPCA is not None:
+            dataRSP = drop_PCA_3D(dataRSP, nDropPCA)
+
+        if dropChannels is not None:
+            nChannels = dataRSP.shape[2]
+            channelMask = np.ones(nChannels).astype(bool)
+            channelMask[dropChannels] = 0
+            dataRSP = dataRSP[:, :, channelMask]
+            channelLabels = channelLabels[channelMask]
+
+        mc.set_data(dataRSP, 'rsp')
+        metricSettings = {'havePVal': False, 'estimator': estimator}
+        rezS2D = mc.metric3D('corr', 's', metricSettings=metricSettings)
+        rez2D = np.mean(rezS2D, axis=0)
+
+        return channelLabels, rez2D
+    else:
+        raise ValueError('Unexpected strategy', strategy)
 
 
 def plot_corr_mouse(dataDB, mc, estimator, xParamName, nDropPCA=None, dropChannels=None, haveBrain=False, haveMono=True,
-                    exclQueryLst=None, thrMono=0.4, clusterParam=-10, fontsize=20, **kwargs):  # intervNames=None, dataTypes=None, trialTypes=None, performances=None,
+                    corrStrategy='mean', exclQueryLst=None, thrMono=0.4, clusterParam=-10, fontsize=20, **kwargs):
 
     assert xParamName in ['intervName', 'trialType'], 'Unexpected parameter'
     assert xParamName in kwargs.keys(), 'Requires ' + xParamName
@@ -120,7 +136,7 @@ def plot_corr_mouse(dataDB, mc, estimator, xParamName, nDropPCA=None, dropChanne
                     axMono[0][iXParam].set_title(xParamVal, fontsize=fontsize)
 
                 kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
-                channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename,
+                channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename, strategy=corrStrategy,
                                                        nDropPCA=nDropPCA, dropChannels=dropChannels,
                                                        estimator=estimator, **kwargsThis)
 
@@ -143,7 +159,7 @@ def plot_corr_mouse(dataDB, mc, estimator, xParamName, nDropPCA=None, dropChanne
                     _plot_corr_1D(figMono, axMono[iMouse][iXParam], channelLabels, rez2D, thrMono)
 
         # Save image
-        plotPrefix = 'corr_mouse' + xParamName
+        plotPrefix = 'corr_mouse' + xParamName + '_dropPCA_' + str(nDropPCA)
 
         figCorr.savefig(plotPrefix + '_' + plotSuffix + '.png')
         plt.close(figCorr)
@@ -158,7 +174,7 @@ def plot_corr_mouse(dataDB, mc, estimator, xParamName, nDropPCA=None, dropChanne
 
 
 def plot_corr_mousephase_subpre(dataDB, mc, estimator, nDropPCA=None, dropChannels=None, exclQueryLst=None, fontsize=20,
-                                **kwargs):  # intervNames=None, trialTypes=None, performances=None,
+                                corrStrategy='mean', **kwargs):
 
     assert 'intervName' in kwargs.keys(), 'Requires phases'
     dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', datatype=['bn_session'], **kwargs)
@@ -181,7 +197,7 @@ def plot_corr_mousephase_subpre(dataDB, mc, estimator, nDropPCA=None, dropChanne
                 intervName = row['intervName']
 
                 kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
-                channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename,
+                channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename, strategy=corrStrategy,
                                                        nDropPCA=nDropPCA, dropChannels=dropChannels,
                                                        estimator=estimator, **kwargsThis)
 
@@ -198,12 +214,12 @@ def plot_corr_mousephase_subpre(dataDB, mc, estimator, nDropPCA=None, dropChanne
                            title='corr', haveColorBar=haveColorBar, limits=[-1, 1], cmap='RdBu_r')
 
         # Save image
-        figCorr.savefig('corr_subpre_' + plotSuffix + '.png')
+        figCorr.savefig('corr_subpre_dropPCA_' + str(nDropPCA) + '_' + plotSuffix + '.png')
         plt.close()
 
 
 def plot_corr_mousephase_submouse(dataDB, mc, estimator, nDropPCA=None, dropChannels=None, exclQueryLst=None,
-                                  fontsize=20, **kwargs):  # intervNames=None, dataTypes=None, trialTypes=None, performances=None
+                                  corrStrategy='mean', fontsize=20, **kwargs):
 
     assert 'intervName' in kwargs.keys(), 'Requires phases'
     dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
@@ -224,10 +240,9 @@ def plot_corr_mousephase_submouse(dataDB, mc, estimator, nDropPCA=None, dropChan
             rezDict = {}
             for idx, row in dfInterv.iterrows():
                 mousename = row['mousename']
-                axCorr[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
                 kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
-                channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename,
+                channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename, strategy=corrStrategy,
                                                        nDropPCA=nDropPCA, dropChannels=dropChannels,
                                                        estimator=estimator, **kwargsThis)
 
@@ -238,6 +253,7 @@ def plot_corr_mousephase_submouse(dataDB, mc, estimator, nDropPCA=None, dropChan
 
             for mousename, rezMouse in rezDict.items():
                 iMouse = dps.param_index('mousename', mousename)
+                axCorr[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
 
                 if mousename in rezDict.keys():
                     haveColorBar = iInterv == nInterv - 1
@@ -245,11 +261,11 @@ def plot_corr_mousephase_submouse(dataDB, mc, estimator, nDropPCA=None, dropChan
                            title='corr', haveColorBar=haveColorBar, limits=[-1,1], cmap='RdBu_r')
 
         # Save image
-        figCorr.savefig('corr_submouse_' + plotSuffix + '.png')
+        figCorr.savefig('corr_submouse__dropPCA_' + str(nDropPCA) + '_' + plotSuffix + '.png')
         plt.close()
 
 
-def plot_corr_mouse_2DF(dfDict, mc, estimator, intervNameMap, intervOrdMap,
+def plot_corr_mouse_2DF(dfDict, mc, estimator, intervNameMap, intervOrdMap, corrStrategy='mean',
                         nDropPCA=None, dropChannels=None, exclQueryLst=None):
     dataDBTmp = list(dfDict.values())[0]
 
@@ -282,7 +298,7 @@ def plot_corr_mouse_2DF(dfDict, mc, estimator, intervNameMap, intervOrdMap,
                         del kwargs['mousename']
                         kwargs = {k: v if v!='None' else None for k, v in kwargs.items()}
 
-                        channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename,
+                        channelLabels, rez2D = calc_corr_mouse(dataDB, mc, mousename, strategy=corrStrategy,
                                                                nDropPCA=nDropPCA, dropChannels=dropChannels,
                                                                estimator=estimator, **kwargs)
 
@@ -290,7 +306,7 @@ def plot_corr_mouse_2DF(dfDict, mc, estimator, intervNameMap, intervOrdMap,
                                limits=[-1, 1], cmap='jet', haveColorBar=iMouse == nMice-1)
 
             # Save image
-            plt.savefig('corr_bystim_bn_session_' + plotSuffix + '.png')
+            plt.savefig('corr_bystim_dropPCA_' + str(nDropPCA) + '_bn_session_' + plotSuffix + '.png')
             plt.close()
 
 
@@ -372,7 +388,7 @@ def plot_corr_consistency_l1_mouse(dataDB, nDropPCA=None, dropChannels=None, exc
         fig, ax = plt.subplots()
         dfPivot = pd_pivot(dfConsistency, *dfColumns)
         sns.heatmap(data=dfPivot, ax=ax, annot=True, vmin=0, vmax=1, cmap='jet')
-        fig.savefig('consistency_coactivity_metric_'+plotExtraSuffix+'.png')
+        fig.savefig('consistency_coactivity_metric_dropPCA_' + str(nDropPCA)+ '_' + plotExtraSuffix+'.png')
         plt.close()
 
 
@@ -447,7 +463,7 @@ def plot_corr_consistency_l1_trialtype(dataDB, nDropPCA=None, dropChannels=None,
     fig, ax = plt.subplots()
     dfPivot = pd_pivot(dfConsistency, *dfColumns)
     sns.heatmap(data=dfPivot, ax=ax, annot=True, vmin=0, vmax=1, cmap='jet')
-    fig.savefig('consistency_coactivity_metric_' + datatype + '_' + str(performance) + '.png')
+    fig.savefig('consistency_coactivity_metric_dropPCA_' + str(nDropPCA) + '_' + datatype + '_' + str(performance) + '.png')
     plt.close()
 
 
@@ -512,7 +528,7 @@ def plot_corr_consistency_l1_phase(dataDB, nDropPCA=None, dropChannels=None, per
     fig, ax = plt.subplots()
     dfPivot = pd_pivot(dfConsistency, *dfColumns)
     sns.heatmap(data=dfPivot, ax=ax, annot=True, vmin=0, vmax=1, cmap='jet')
-    fig.savefig('consistency_coactivity_metric_' + datatype + '_' + str(performance) + '.png')
+    fig.savefig('consistency_coactivity_metric_dropPCA_' + str(nDropPCA) + '_' + datatype + '_' + str(performance) + '.png')
     plt.close()
 
 
@@ -687,7 +703,7 @@ def plot_pca_consistency(dataDB, intervNames=None, dropFirst=None, dropChannels=
 # Movies
 #######################
 
-def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, exclQueryLst=None, haveDelay=False, fontsize=20, **kwargs):   #nDropPCA=None, #performances=None,
+def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, exclQueryLst=None, nDropPCA=None, haveDelay=False, fontsize=20, **kwargs):
     assert 'trialType' in kwargs.keys(), 'Requires trial types'
     dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
     nMice = dps.param_size('mousename')
@@ -707,6 +723,9 @@ def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, exclQueryLst=None, hav
                 kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
                 dataLst = get_data_list(dataDB, haveDelay, mousename, **kwargsThis)
                 dataRSP = np.concatenate(dataLst, axis=0)
+
+                if nDropPCA is not None:
+                    dataRSP = drop_PCA_3D(dataRSP, nDropPCA)
 
                 mc.set_data(dataRSP, 'rsp')
                 metricSettings = {'havePVal': False, 'estimator': estimator}
@@ -734,6 +753,6 @@ def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, exclQueryLst=None, hav
                     haveColorBar = iTT == nTrialType - 1
                     imshow(fig, ax[iMouse][iTT], rezS, limits=[-1, 1], cmap='jet', haveColorBar=haveColorBar)
 
-            plt.savefig('corr_mouseTrialType_' + plotSuffix + '_' + str(iTime) + '.png')
+            plt.savefig('corr_mouseTrialType_dropPCA_' + str(nDropPCA) + '_' + plotSuffix + '_' + str(iTime) + '.png')
             plt.close()
             progBar.value += 1
