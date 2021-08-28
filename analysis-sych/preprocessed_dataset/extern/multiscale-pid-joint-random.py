@@ -26,7 +26,7 @@ argSweepDict = {
     'mousename': dataDB.mice,  # ['mvg_4']
     'intervName': dataDB.get_interval_names(),
     'datatype': ['bn_trial', 'bn_session'],
-    'trialType': [None] + dataDB.get_trial_type_names(),
+    'trialType': ['None', 'iGO', 'iNOGO'],
     'performance': ['naive', 'expert']
 }
 
