@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -51,7 +52,7 @@ def compute_mean_interval(dataDB, ds, trialTypeTrg, skipExisting=False, exclQuer
                 ds.save_data(dataName, dataRP, attrsDict)
 
 
-def activity_brainplot_mouse(dataDB, xParamName, exclQueryLst=None, vmin=None, vmax=None, fontsize=20, **kwargs):
+def activity_brainplot_mouse(dataDB, xParamName, exclQueryLst=None, vmin=None, vmax=None, fontsize=20, dpi=200, **kwargs):
     assert xParamName in kwargs.keys(), 'Requires ' + xParamName
     dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
     nMice = dps.param_size('mousename')
@@ -82,11 +83,11 @@ def activity_brainplot_mouse(dataDB, xParamName, exclQueryLst=None, vmin=None, v
                 dataDB.plot_area_values(fig, ax[iMouse][iXParam], dataP, vmin=vmin, vmax=vmax, cmap='jet',
                                         haveColorBar=haveColorBar)
 
-        plt.savefig('activity_brainplot_mousephase_' + plotSuffix + '.png')
+        plt.savefig('activity_brainplot_mousephase_' + plotSuffix + '.png', dpi=dpi)
         plt.close()
 
 
-def activity_brainplot_mousephase_subpre(dataDB, exclQueryLst=None, vmin=None, vmax=None, fontsize=20, **kwargs):
+def activity_brainplot_mousephase_subpre(dataDB, exclQueryLst=None, vmin=None, vmax=None, fontsize=20, dpi=200, **kwargs):
     assert 'intervName' in kwargs.keys(), 'Requires phases'
     dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', datatype=['bn_session'], **kwargs)
     nMice = dps.param_size('mousename')
@@ -122,11 +123,11 @@ def activity_brainplot_mousephase_subpre(dataDB, exclQueryLst=None, vmin=None, v
                     dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataPDelta, vmin=vmin, vmax=vmax, cmap='jet',
                                             haveColorBar=haveColorBar)
 
-        plt.savefig('activity_brainplot_mousephase_subpre_' + plotSuffix + '.png')
+        plt.savefig('activity_brainplot_mousephase_subpre_' + plotSuffix + '.png', dpi=dpi)
         plt.close()
 
 
-def activity_brainplot_mousephase_submouse(dataDB, exclQueryLst=None, vmin=None, vmax=None, drop6=False, fontsize=20, **kwargs):
+def activity_brainplot_mousephase_submouse(dataDB, exclQueryLst=None, vmin=None, vmax=None, fontsize=20, dpi=200, **kwargs):
     assert 'intervName' in kwargs.keys(), 'Requires phases'
     dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
     nMice = dps.param_size('mousename')
@@ -160,11 +161,11 @@ def activity_brainplot_mousephase_submouse(dataDB, exclQueryLst=None, vmin=None,
                 dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataPDelta, vmin=vmin, vmax=vmax, cmap='jet',
                                         haveColorBar=haveColorBar)
 
-        plt.savefig('activity_brainplot_mousephase_submouse_' + plotSuffix + '.png')
+        plt.savefig('activity_brainplot_mousephase_submouse_' + plotSuffix + '.png', dpi=dpi)
         plt.close()
 
 
-def activity_brainplot_mouse_2DF(dbDict, intervNameMap, intervOrdMap, trialTypes, vmin, vmax, drop6=False, fontsize=20):
+def activity_brainplot_mouse_2DF(dbDict, intervNameMap, intervOrdMap, trialTypes, vmin, vmax, drop6=False, dpi=200, fontsize=20):
     dbTmp = list(dbDict.values())[0]
 
     mice = sorted(dbTmp.mice)
@@ -196,7 +197,7 @@ def activity_brainplot_mouse_2DF(dbDict, intervNameMap, intervOrdMap, trialTypes
                             dataDB.plot_area_values(fig, ax[iDB][iMouse], dataP, vmin=vmin, vmax=vmax, cmap='jet',
                                                     haveColorBar=haveColorBar)
 
-                plt.savefig('activity_brainplot_mouse_2df_' + '_'.join([datatype, trialType, intervLabel]) + '.png')
+                plt.savefig('activity_brainplot_mouse_2df_' + '_'.join([datatype, trialType, intervLabel]) + '.png', dpi=dpi)
                 plt.close()
 
 
@@ -482,6 +483,12 @@ def activity_brainplot_movie_mousetrialtype(dataDB, exclQueryLst=None, vmin=None
         progBar = IntProgress(min=0, max=nTimes, description=plotSuffix)
         display(progBar)  # display the bar
         for iTime in range(nTimes):
+            outfname = 'activity_brainplot_mousetrialtype_' + plotSuffix + '_' + str(iTime) + '.png'
+            if os.path.isfile(outfname):
+                print('Already calculated', iTime, 'skipping')
+                progBar.value += 1
+                continue
+
             fig, ax = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4 * nTrialType, 4 * nMice), tight_layout=True)
 
             for iMouse, mousename in enumerate(dps.param('mousename')):
@@ -496,6 +503,9 @@ def activity_brainplot_movie_mousetrialtype(dataDB, exclQueryLst=None, vmin=None
                     dataDB.plot_area_values(fig, ax[iMouse][iTT], dataP, vmin=vmin, vmax=vmax, cmap='jet',
                                             haveColorBar=haveColorBar)
 
-            plt.savefig('activity_brainplot_mousetrialtype_' + plotSuffix + '_' + str(iTime) + '.png')
-            plt.close()
+            plt.savefig(outfname)
+            # plt.close()
+            plt.cla()
+            plt.clf()
+            plt.close('all')
             progBar.value += 1

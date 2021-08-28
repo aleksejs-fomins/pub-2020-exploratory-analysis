@@ -111,7 +111,7 @@ class DataFCDatabase:
         return [key[5:] for key in h5file.keys() if 'data_' in key]
 
     def get_trial_type_names(self):
-        return self.trialTypeNames
+        return list(self.trialTypeNames)
 
     def get_data_types(self):
         return self.dataTypes
@@ -244,6 +244,9 @@ class DataFCDatabase:
 
                 if trialType is not None:
                     thisTrialTypeIdxs = self.get_trial_type_idxs_h5(h5file, sessionThis, trialType)
+
+                    # print(sessions, trialType, dataRSP.shape, thisTrialTypeIdxs)
+
                     dataRSP = dataRSP[thisTrialTypeIdxs]
                 if intervName is not None:
                     timeL, timeR = self.get_interval_times(sessionThis, mousename, intervName)
@@ -267,7 +270,7 @@ class DataFCDatabase:
             trialTypes = trialTypeNames[trialTypes]
             return data, trialIdxs, interTrialStartIdxs, fps, trialTypes
 
-    def plot_area_clusters(self, regDict, haveLegend=False, haveColorBar=True):
+    def plot_area_clusters(self, fig, ax, regDict, haveLegend=False):
         trgShape = self.areaSketch.shape + (3,)
         colors = base_colors_rgb('tableau')
         rez = np.zeros(trgShape)
@@ -276,7 +279,15 @@ class DataFCDatabase:
         imColor = np.outer(imBinary.astype(float), np.array([0.1, 0.1, 0.1])).reshape(trgShape)
         rez += imColor
 
-        for iGroup, (label, lst) in enumerate(regDict.items()):
+        # NOTE: Since number of clusters frequently exceeds number of discernable colors,
+        # The compromise is to drop all clusters of size 1 from the plot
+        regDictEff = {k: v for k, v in regDict.items() if len(v) > 1}
+
+        if len(regDictEff) > len(colors):
+            print('Warning: too many clusters to display, skipping', len(regDictEff))
+            return
+
+        for iGroup, (label, lst) in enumerate(regDictEff.items()):
             for iROI in lst:
                 imBinary = self.areaSketch == (iROI + 2)
                 imColor = np.outer(imBinary.astype(float), colors[iGroup]).reshape(trgShape)
@@ -284,11 +295,9 @@ class DataFCDatabase:
 
         rez = rgb_change_color(rez, [0,0,0], np.array([255,255,255]))
 
-        fig, ax = plt.subplots(figsize=(12,8))
-        imshow(fig, ax, rez, haveColorBar=haveColorBar)
+        imshow(fig, ax, rez)
         if haveLegend:
-            plt_add_fake_legend(ax, colors[:len(regDict)], list(regDict.keys()))
-        return fig, ax
+            plt_add_fake_legend(ax, colors[:len(regDictEff)], list(regDictEff.keys()))
 
     def plot_area_values(self, fig, ax, valLst, vmin=None, vmax=None, cmap='jet', haveColorBar=True):
         # Mapping values to colors

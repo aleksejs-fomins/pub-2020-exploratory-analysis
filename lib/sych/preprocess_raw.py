@@ -538,14 +538,34 @@ def drop_trials(dfRawH5, session, idxsTrial):
     path = pooled_get_path_session(dfRawH5, session)
 
     with h5py.File(path, 'a') as h5file:
-        tmp = np.array(h5file['trialTypes'][session])
+        trialTypes = np.array(h5file['trialTypes'][session])
 
-        if not np.all(tmp[idxsTrial] == -1):
+        # Update trialTypes
+        if not np.all(trialTypes[idxsTrial] == -1):
             print('dropping', session, idxsTrial)
-            tmp[idxsTrial] = -1
+            trialTypes[idxsTrial] = -1
 
             del h5file['trialTypes'][session]
-            h5file['trialTypes'].create_dataset(session, data=tmp)
+            h5file['trialTypes'].create_dataset(session, data=trialTypes)
+        else:
+            print('Trials already dropped, ignoring:', idxsTrial)
+
+        # Update trialTypesSelected
+        if 'trialTypesSelected' not in h5file.keys():
+            print("trialTypesSelected not yet computed")
+        elif session not in h5file['trialTypesSelected'].keys():
+            print("trialTypesSelected not yet computed for session", session)
+        else:
+            trialTypesSelected = np.array(h5file['trialTypesSelected'][session])
+            idxsSelected = trial_types_selected_idxs(trialTypes)
+            trialTypesSelectedNew = trialTypes[idxsSelected]
+
+            if np.array_equal(trialTypesSelected, trialTypesSelectedNew):
+                print("trialTypesSelected already consistent (size ", len(trialTypesSelected), "), no need to update")
+            else:
+                print("Updating trialTypesSelected to", trialTypesSelectedNew)
+                del h5file['trialTypesSelected'][session]
+                h5file['trialTypesSelected'].create_dataset(session, data=trialTypesSelectedNew)
 
 
 # FIXME: How can a trial be short if all trials are set to 8s ???
@@ -700,6 +720,11 @@ def poly_view_fit(dfRawH5, session, channel, ord, onlyTrials=False, onlySelected
 # Baseline Normalization
 ###############################
 
+# Return indices of selected trial types
+def trial_types_selected_idxs(trialTypes):
+    return trialTypes >= 0
+
+
 # Return data partitioned into trials
 def data_partition_trials(h5file, session, data=None, tmin=-2, tmax=8, onlySelected=True):
     if data is None:
@@ -724,7 +749,7 @@ def data_partition_trials(h5file, session, data=None, tmin=-2, tmax=8, onlySelec
     dataTrials = np.array(dataTrials)
 
     if onlySelected:
-        trialIdxs = trialTypesAll >= 0
+        trialIdxs = trial_types_selected_idxs(trialTypesAll)
         dataTrials = dataTrials[trialIdxs]
         if dataTrials.ndim == 1:
             dataTrials = np.array(list(dataTrials))

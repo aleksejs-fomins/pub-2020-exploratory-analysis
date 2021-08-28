@@ -323,7 +323,7 @@ class DataFCDatabase:
 
         ax.imshow(rez)
 
-    def plot_area_clusters(self, fig, ax, regDict, haveLegend=False, haveColorBar=True):
+    def plot_area_clusters(self, fig, ax, regDict, haveLegend=False):
         trgShape = self.allenMap.shape + (3,)
         colors = base_colors_rgb('tableau')
         rez = np.zeros(trgShape)
@@ -338,7 +338,7 @@ class DataFCDatabase:
                 imColor = np.outer(imBinary.astype(float), colors[iGroup]).reshape(trgShape)
                 rez += imColor
 
-        imshow(fig, ax, rez, haveColorBar=haveColorBar)
+        imshow(fig, ax, rez)
         if haveLegend:
             plt_add_fake_legend(ax, colors[:len(regDict)], list(regDict.keys()))
 

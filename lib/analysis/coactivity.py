@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -93,7 +94,7 @@ def calc_corr_mouse(dataDB, mc, mousename, nDropPCA=1, dropChannels=None, strate
 
 
 def plot_corr_mouse(dataDB, mc, estimator, xParamName, nDropPCA=None, dropChannels=None, haveBrain=False, haveMono=True,
-                    corrStrategy='mean', exclQueryLst=None, thrMono=0.4, clusterParam=-10, fontsize=20, **kwargs):
+                    corrStrategy='mean', exclQueryLst=None, thrMono=0.4, clusterParam=0.5, fontsize=20, **kwargs):
 
     assert xParamName in ['intervName', 'trialType'], 'Unexpected parameter'
     assert xParamName in kwargs.keys(), 'Requires ' + xParamName
@@ -143,8 +144,7 @@ def plot_corr_mouse(dataDB, mc, estimator, xParamName, nDropPCA=None, dropChanne
                 haveColorBar = iXParam == nXParam - 1
 
                 # Plot correlations
-                imshow(figCorr, axCorr[iMouse][iXParam], rez2D, title='corr', limits=[-1,1], cmap='jet',
-                       haveColorBar=haveColorBar)
+                imshow(figCorr, axCorr[iMouse][iXParam], rez2D, limits=[-1,1], cmap='jet', haveColorBar=haveColorBar)
 
                 # Plot clustering
                 clusters = cluster_dist_matrix_max(rez2D, clusterParam, method='Affinity')
@@ -152,8 +152,7 @@ def plot_corr_mouse(dataDB, mc, estimator, xParamName, nDropPCA=None, dropChanne
                              cmap='jet', haveColorBar=haveColorBar)
 
                 if haveBrain:
-                    cluster_brain_plot(figBrain, axBrain[iMouse][iXParam], dataDB, clusters,
-                                        dropChannels=dropChannels, haveColorBar=haveColorBar)
+                    cluster_brain_plot(figBrain, axBrain[iMouse][iXParam], dataDB, clusters, dropChannels=dropChannels)
 
                 if haveMono:
                     _plot_corr_1D(figMono, axMono[iMouse][iXParam], channelLabels, rez2D, thrMono)
@@ -211,7 +210,7 @@ def plot_corr_mousephase_subpre(dataDB, mc, estimator, nDropPCA=None, dropChanne
                 if (intervName in rezDict.keys()) and (intervName != 'PRE'):
                     haveColorBar = iInterv == nInterv - 1
                     imshow(figCorr, axCorr[iMouse][iInterv], rezInterv - rezDict['PRE'],
-                           title='corr', haveColorBar=haveColorBar, limits=[-1, 1], cmap='RdBu_r')
+                           haveColorBar=haveColorBar, limits=[-1, 1], cmap='RdBu_r')
 
         # Save image
         figCorr.savefig('corr_subpre_dropPCA_' + str(nDropPCA) + '_' + plotSuffix + '.png')
@@ -740,8 +739,14 @@ def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, exclQueryLst=None, nDr
         progBar = IntProgress(min=0, max=nTimes, description=plotSuffix)
         display(progBar)  # display the bar
         for iTime in range(nTimes):
-            fig, ax = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4*nTrialType, 4*nMice), tight_layout=True)
 
+            figName = 'corr_mouseTrialType_dropPCA_' + str(nDropPCA) + '_' + plotSuffix + '_' + str(iTime) + '.png'
+            if os.path.isfile(figName):
+                print('--Already calculated', figName, 'skipping')
+                progBar.value += 1
+                continue
+
+            fig, ax = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4*nTrialType, 4*nMice), tight_layout=True)
             for iMouse, mousename in enumerate(dps.param('mousename')):
                 ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
                 for iTT, trialType in enumerate(dps.param('trialType')):
@@ -753,6 +758,9 @@ def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, exclQueryLst=None, nDr
                     haveColorBar = iTT == nTrialType - 1
                     imshow(fig, ax[iMouse][iTT], rezS, limits=[-1, 1], cmap='jet', haveColorBar=haveColorBar)
 
-            plt.savefig('corr_mouseTrialType_dropPCA_' + str(nDropPCA) + '_' + plotSuffix + '_' + str(iTime) + '.png')
-            plt.close()
+            plt.savefig(figName)
+            # plt.close()
+            plt.cla()
+            plt.clf()
+            plt.close('all')
             progBar.value += 1
