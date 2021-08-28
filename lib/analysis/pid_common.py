@@ -80,14 +80,14 @@ def _pid_specific(mc, data, dimOrdSrc, dimOrdTrg, labelsAll, labelsSrc, labelsTr
 
     rezLst = []
     labelsRezLst = []
-    for iSrcPair, iSrcTuple in enumerate(sourceIdxCombinations):
+    for iSrcPair, srcPair in enumerate(sourceIdxCombinations):
         for iTrg, labelTrg in enumerate(labelsTrg):
             rezLst += [rez[iSrcPair][iTrg]]
 
             if labelsAsText:
-                labelsRezLst += [[labelsAll[iSrc] for iSrc in iSrcTuple] + [labelTrg]]
+                labelsRezLst += [[labelsAll[iSrc] for iSrc in srcPair] + [labelTrg]]
             else:
-                labelsRezLst += [iSrcTuple + (targetIdxs[iTrg],)]
+                labelsRezLst += [srcPair + [targetIdxs[iTrg]]]
 
     return labelsRezLst, np.array(rezLst)
 
