@@ -7,7 +7,7 @@ sys.path.append(rootpath)
 print("Appended root directory", rootpath)
 
 from mesostat.metric.metric import MetricCalculator
-from lib.gallerosalas.data_fc_db_raw import DataFCDatabase
+from lib.gallerosalas.data_fc_db_aud_raw import DataFCDatabase
 from lib.analysis.pid_multiprocess import pid_multiprocess_mouse_trgsweep
 
 
