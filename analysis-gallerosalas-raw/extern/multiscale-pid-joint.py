@@ -13,12 +13,11 @@ from lib.analysis.pid_multiprocess import pid_multiprocess_mouse
 
 # tmp_path = root_path_data if 'root_path_data' in locals() else "./"
 params = {}
-# params['root_path_data'] = '/home/alfomi/data/yasirdata_raw'
-params['root_path_data'] = '/media/alyosha/Data/TE_data/yasirdata_raw'
+params['root_path_data'] = '/home/alfomi/data/yasirdata_raw'
+# params['root_path_data'] = '/media/alyosha/Data/TE_data/yasirdata_raw'
 # params['root_path_data'] = gui_fpath('h5path', './')
 
 dataDB = DataFCDatabase(params)
-h5outname = 'gallerosalas_result_multiregional_pid_all_df.h5'
 mc = MetricCalculator(serial=True, verbose=False) #, nCore=4)
 
 # Sweep over following parameters
@@ -35,5 +34,10 @@ exclQueryLst = [
     {'mousename' : 'mou_6', 'intervName': 'REW'}     # No reward recorded for mouse 6
 ]
 
-pid_multiprocess_mouse(dataDB, mc, h5outname, argSweepDict, exclQueryLst,
-                       dim=3, nBin=4, permuteTarget=False, dropChannels=[16, 26])
+for nBin in [2,3,5]:
+    for permuteTarget in [False, True]:
+        randKey = 'shuffle' if permuteTarget else 'data'
+        h5outname = 'pid_gallerosalas_bymouse_nbin_' + str(nBin) + '_' + randKey + '.h5'
+
+        pid_multiprocess_mouse(dataDB, mc, h5outname, argSweepDict, exclQueryLst, metric='BivariatePID',
+                               dim=3, nBin=nBin, permuteTarget=permuteTarget, dropChannels=[16, 26])

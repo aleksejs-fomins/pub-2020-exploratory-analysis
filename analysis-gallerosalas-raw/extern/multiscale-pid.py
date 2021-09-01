@@ -34,5 +34,10 @@ exclQueryLst = [
     {'mousename' : 'mou_6', 'intervName': 'REW'}     # No reward recorded for mouse 6
 ]
 
-pid_multiprocess_session(dataDB, mc, h5outname, argSweepDict, exclQueryLst,
-                         dim=3, nBin=4, permuteTarget=False, dropChannels=[16, 26])
+for nBin in [2,3,5]:
+    for permuteTarget in [False, True]:
+        randKey = 'shuffle' if permuteTarget else 'data'
+        h5outname = 'pid_gallerosalas_bymouse_nsession_' + str(nBin) + '_' + randKey + '.h5'
+
+        pid_multiprocess_session(dataDB, mc, h5outname, argSweepDict, exclQueryLst, metric='BivariatePID',
+                                 dim=3, nBin=4, permuteTarget=False, dropChannels=[16, 26])
