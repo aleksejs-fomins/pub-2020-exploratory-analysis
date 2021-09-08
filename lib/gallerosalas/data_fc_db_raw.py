@@ -285,11 +285,13 @@ class DataFCDatabase:
                 # FIXME: Time index hardcoded. Make sure it works for any dimOrdCanon
                 dataRSP = dataRSP[:, timeIdxs]
             else:
-                if selectorType == 'mousename':
-                    raise IOError('Why do we need this?')
+                print('Warning: using non-uniform duration across sessions')
 
-                # FIXME: Number of timesteps hardcoded. Perhaps there is a better way
-                # dataRSP = dataRSP[:, :160]  # Ensuring all trials that are too long are cropped to this time
+                # if selectorType == 'mousename':
+                #     raise IOError('Why do we need this?')
+                #
+                # # FIXME: Number of timesteps hardcoded. Perhaps there is a better way
+                # # dataRSP = dataRSP[:, :160]  # Ensuring all trials that are too long are cropped to this time
 
             dataLst += [dataRSP]
 

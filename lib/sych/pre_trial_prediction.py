@@ -44,15 +44,18 @@ def plot_session(dataDB, session, channelIdx=0):
     dataDiffResampled = resample(times, dataDiff, tResampled, param=paramRes)
 
     fig, ax = plt.subplots(nrows=2, figsize=(10, 4))
-    ax[0].plot(times, dataThisCh)
-    ax[0].plot(times, dataFitted)
-    ax[0].plot(tResampled, dataResampled)
+    ax[0].plot(times, dataThisCh, 'C0', label='raw data')
+    ax[0].plot(times, dataFitted, 'C1', label='spline fit')
+    ax[0].plot(tResampled, dataResampled, 'C2', label='running avg')
     ax[0].add_collection(PatchCollection(patchesPre, alpha=0.3, color='y', edgecolor='none'))
     ax[0].add_collection(PatchCollection(patchesPost, alpha=0.3, color='g', edgecolor='none'))
-    ax[1].plot(times, dataDiff)
-    ax[1].plot(tResampled, dataDiffResampled)
+    ax[1].plot(times, dataDiff, 'C0', label='residual data')
+    ax[1].plot(tResampled, dataDiffResampled, 'C2', label='running avg')
+    ax[0].legend()
+    ax[1].legend()
     ax[0].set_ylabel('RAW')
     ax[1].set_ylabel('BG-SUB')
+    ax[1].set_xlabel('Timestep')
     plt.show()
 
 
