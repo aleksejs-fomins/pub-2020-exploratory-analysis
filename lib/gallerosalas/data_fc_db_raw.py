@@ -305,26 +305,6 @@ class DataFCDatabase:
             ax.axvline(x=t, color=linecolor, linestyle='--')
             plt.text(t+shX, shY, label, color=textcolor, verticalalignment='bottom', transform=trans, rotation=90)
 
-    def plot_area_lists(self, ax, regDict, haveLegend=False):
-        trgShape = self.allenMap.shape + (3,)
-        colors = base_colors_rgb('tableau')
-        rez = np.zeros(trgShape)
-
-        imBinary = self.allenMap == 0
-        imColor = np.outer(imBinary.astype(float), np.array([0.5, 0.5, 0.5])).reshape(trgShape)
-        rez += imColor
-
-        for iGroup, (label, lst) in enumerate(regDict.items()):
-            for iROI in lst:
-                imBinary = self.allenMap == self.allenIndices[iROI]
-                imColor = np.outer(imBinary.astype(float), colors[iGroup]).reshape(trgShape)
-                rez += imColor
-
-        if haveLegend:
-            plt_add_fake_legend(ax, colors[:len(regDict)], list(regDict.keys()))
-
-        ax.imshow(rez)
-
     def plot_area_clusters(self, fig, ax, regDict, haveLegend=False):
         trgShape = self.allenMap.shape + (3,)
         colors = base_colors_rgb('tableau')
