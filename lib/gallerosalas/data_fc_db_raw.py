@@ -133,11 +133,11 @@ class DataFCDatabase:
         if mousename is None:
             mousename = self.find_mouse_by_session(session)
 
-        return pd.read_hdf(self.datapaths[mousename], '/metadata/'+session)
+        return pd.read_hdf(self.datapaths[mousename], '/metadataTrial/'+session)
 
     def get_trial_types(self, session, mousename=None):
         df = self.get_metadata(session, mousename=mousename)
-        return np.array(df['trialType'])
+        return np.array(df['TrialType'])
 
     def get_trial_type_names(self):
         return ['Hit', 'Miss', 'CR', 'FA']
@@ -230,12 +230,16 @@ class DataFCDatabase:
             5. Set increment, return
         '''
 
-        df = pd.read_hdf(self.datapaths[mousename], '/metadata/' + session)
-        timeStamps = pd.to_datetime(df['time_stamp'], format='%H:%M:%S.%f')
-        timeDeltas = timeStamps - timeStamps[0]
+        # df = pd.read_hdf(self.datapaths[mousename], '/metadata/' + session)
+        # timeStamps = pd.to_datetime(df['time_stamp'], format='%H:%M:%S.%f')
+        # timeDeltas = timeStamps - timeStamps[0]
+        #
+        # timesSh = np.arange(nSample) / FPS
+        # timesRS = np.array([t.total_seconds() + timesSh for t in timeDeltas])
 
+        df = pd.read_hdf(self.datapaths[mousename], '/metadataTrial/' + session)
         timesSh = np.arange(nSample) / FPS
-        timesRS = np.array([t.total_seconds() + timesSh for t in timeDeltas])
+        timesRS = np.array([timesSh + t for t in df['Time']])
 
         return timesRS
 

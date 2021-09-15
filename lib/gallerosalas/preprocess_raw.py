@@ -7,18 +7,17 @@ from collections import defaultdict
 import pymatreader
 # from scipy.ndimage import affine_transform
 import skimage.transform as skt
+import matplotlib.pyplot as plt
 
-# from mesostat.utils.arrays import numpy_merge_dimensions
+
 from mesostat.utils.pandas_helper import pd_append_row, pd_query, pd_is_one_row
-# from mesostat.utils.matlab_helper import loadmat
 from mesostat.stat.performance import accuracy, d_prime
+from mesostat.utils.labview_helper import labview_parse_log_as_pandas
 
 # import lib.preprocessing.polyfit as polyfit
 import lib.gallerosalas.preprocess_common as prepcommon
 
 # import mesostat.utils.image_processing as msimg
-
-
 
 class preprocess:
     def __init__(self, pathDict):
@@ -36,18 +35,19 @@ class preprocess:
 
         # Find parse TGT files
         self.dataPaths = pd.DataFrame(
-            columns=['mouse', 'day', 'session', 'sessionPath', 'trialIndPath', 'trialStructPath', 'pathActivePassive'])
+            columns=['mouse', 'day', 'session', 'sessionPath',
+                     'trialIndPath', 'trialStructPathMat', 'trialStructPathLabview',
+                     'pathActivePassive', 'pathMovementVectors'])
         self.pathT1 = defaultdict(dict)
 
-        if 'TGT' in pathDict:
-            self.find_parse_tdt(pathDict['TGT'])
+        if 'TDT' in pathDict:
+            self.find_parse_tdt(pathDict['TDT'])
 
         # Find parse Overlay
         self.pathRef = {}
         self.pathT2 = {}
         if 'Overlay' in pathDict:
             self.find_parse_overlay(pathDict['Overlay'])
-
 
 ############################
 #  Raw data segmentation and pooling
@@ -58,16 +58,23 @@ class preprocess:
         sessionIdx = int(name[len('session'):]) - 1
         return chr(97 + sessionIdx)
 
+    def _letters_to_sessions(self, name):
+        return ord(name) - 96
+
     def get_mice(self):
         return sorted(list(set(self.dataPaths['mouse'])))
 
     # Find necessary file paths in the TDT folder
     def find_parse_tdt(self, pathTDT):
+        print('Parsing TDT:')
+
         for mouseName, dfMouse in self.dfSession.groupby(['mousename']):
             pathMouse = os.path.join(pathTDT, mouseName)
             prepcommon._testdir(pathMouse)
 
             for dayName, dfDay in dfMouse.groupby(['dateKey']):
+                print('--', mouseName, dayName)
+
                 pathDay = os.path.join(pathMouse, 'TDT', dayName, 'widefield_labview')
                 pathAllen = os.path.join(pathDay, 'ROI_Allen', 'registration_transform_1510.mat')
                 prepcommon._testdir(pathDay)
@@ -88,25 +95,45 @@ class preprocess:
                         matFiles = [f for f in matFiles if dayName[:4] in f]
 
                         assert len(matFiles) == 1
-                        pathTrialStruct = os.path.join(pathMat, matFiles[0])
+                        pathTrialStructMat = os.path.join(pathMat, matFiles[0])
                     else:
-                        pathTrialStruct = os.path.join(pathMat, dayName + sessionSuffix + '.mat')
+                        pathTrialStructMat = os.path.join(pathMat, dayName + sessionSuffix + '.mat')
+
+
+                    if mouseName == 'mou_5':
+                        sessionKeyLabview = '_s' + sessionSuffix[-1]
+                    elif mouseName == 'mou_6':
+                        sessionKeyLabview = '_s' + str(self._letters_to_sessions(sessionSuffix))
+                    else:
+                        sessionKeyLabview = '_' + sessionSuffix
+
+                    pathTrialStructLabview = os.path.join(pathSession, mouseName + sessionKeyLabview + ''.join(dayName.split('_')) + '.txt')
 
                     pathActivePassive = os.path.join(pathMat, 'trials_with_and_wo_initial_moves_OCIA_from_movie.mat')
+
+                    pathMovementVectors = os.path.join(pathMat, 'move_vectors_from_movie.mat')
 
                     prepcommon._testdir(pathSession)
                     prepcommon._testdir(pathMat)
                     prepcommon._testfile(pathTrialInd)
-                    prepcommon._testfile(pathTrialStruct)
+                    prepcommon._testfile(pathTrialStructMat)
+                    prepcommon._testfile(pathTrialStructLabview, critical=False)
                     prepcommon._testfile(pathActivePassive, critical=False)
+                    prepcommon._testfile(pathMovementVectors, critical=False)
 
                     self.dataPaths = pd_append_row(self.dataPaths, [
-                        mouseName, dayName, sessionSuffix, pathSession, pathTrialInd, pathTrialStruct, pathActivePassive
+                        mouseName, dayName, sessionSuffix, pathSession,
+                        pathTrialInd, pathTrialStructMat, pathTrialStructLabview,
+                        pathActivePassive, pathMovementVectors
                     ])
 
     # Find necessary file paths in overlay folder
     def find_parse_overlay(self, pathOverlay):
+        print('Parsing overlay:')
+
         for mouseName, dfMouse in self.dfSession.groupby(['mousename']):
+            print('--', mouseName)
+
             pathMouse = os.path.join(pathOverlay, mouseName)
             pathRef = os.path.join(pathMouse, 'refImg_ROIs.mat')
             pathT2 = os.path.join(pathMouse, 't2str.mat')
@@ -191,20 +218,21 @@ class preprocess:
 #  Metadata Pooling
 ############################
 
+    def mouse_is_flipped_hit_cr(self, mouseName):
+        return (mouseName == 'mou_6') or (mouseName == 'mou_9')
 
     # Different mice have different Go/NoGo testures
     def tex_go_nogo_bymouse(self, mouseName):
-        # return 'P100', 'P1200'
-        if (mouseName == 'mou_5') or (mouseName == 'mou_7'):
-            return 'P100', 'P1200'
-        else:
+        if self.mouse_is_flipped_hit_cr(mouseName):
             return 'P1200', 'P100'
+        else:
+            return 'P100', 'P1200'
 
     def trial_map_go_nogo_bymouse(self, mouseName):
-        if (mouseName == 'mou_5') or (mouseName == 'mou_7'):
-            return {'100' : 'Hit', '1200' : 'CR'}
+        if self.mouse_is_flipped_hit_cr(mouseName):
+            return {'1200': 'Hit', '100': 'CR'}
         else:
-            return {'1200' : 'Hit', '100' : 'CR'}
+            return {'100': 'Hit', '1200': 'CR'}
 
     # Convert stimulus and decision into trial type
     def parse_trial_type(self, stimulus, decision, mouseName):
@@ -229,76 +257,108 @@ class preprocess:
 
     # Read trial structure file, drop unnecessary columns, compute trialType, return DF
     def read_trial_structure_as_pd(self, path, mouseName):
+        _drop_non_floats = lambda lst: [el if isinstance(el, float) else np.nan for el in lst]
+
         df = pd.DataFrame(pymatreader.read_mat(path)['trials'])
         df['trialType'] = [self.parse_trial_type(s, d, mouseName) for s, d in zip(df['stimulus'], df['decision'])]
+
+        df['decision_time'] = _drop_non_floats(df['decision_time'])
+        df['stimulus_time'] = _drop_non_floats(df['stimulus_time'])
+        df['delayLength'] = (df['decision_time'] - df['stimulus_time'] - 2000) / 1000
+
         df.drop(['id', 'no', 'puff', 'report', 'auto_reward', 'stimulus', 'decision'], inplace=True, axis=1)
         return df
+
+    def read_parse_labview_trial_structure_as_pd(self, pwd):
+        timestamp, dfMeta = labview_parse_log_as_pandas(pwd, sep='\t', endEvent='End Trial')
+
+        # Compute delay lengths
+        dfMeta['DelayLength'] = dfMeta['Report'] - dfMeta['Delay']
+
+        # Compute trial types
+        dfMeta['TrialType'] = 'NotSure'
+        srcTrialTypes = ['Go', 'No Go', 'No Response', 'Inappropriate Response']
+        trgTrialTypes = ['Hit', 'CR', 'Miss', 'FA']
+
+        for srcTT, trgTT in zip(srcTrialTypes, trgTrialTypes):
+            if srcTT in dfMeta.columns:
+                dfMeta.loc[dfMeta[srcTT].notna(), 'TrialType'] = trgTT
+
+        return timestamp, dfMeta
+
+    # Take the best of two arrays
+    def reconcile_trial_structure(self, dfMat, dfLabview):
+        # Compare number of trials
+        assert len(dfMat) == len(dfLabview)
+
+        # Compare trial idxs for hit, miss, CR, FA
+        for trialType in ['Hit', 'CR', 'Miss', 'FA']:
+            idxsTrMat = np.array(dfMat['trialType'] == trialType)
+            idxsTrLV = np.array(dfLabview['TrialType'] == trialType)
+            np.testing.assert_array_equal(idxsTrMat, idxsTrLV)
+
+        # Delay is wrong in MAT, use LV instead
+        delay = np.round(np.nanmean(dfLabview['DelayLength']),2)
+
+        # Trial labels are better in MAT, reuse
+        dfLabview['TrialType'] = list(dfMat['trialType'])
+
+        # print('Mat',
+        #       np.round(np.nanmin(dfMat['delayLength']),2),
+        #       np.round(np.nanmax(dfMat['delayLength']),2),
+        #       np.round(np.nanmean(dfMat['delayLength']),2))
+        # print('LV',
+        #       np.round(np.nanmin(dfLabview['DelayLength']),2),
+        #       np.round(np.nanmax(dfLabview['DelayLength']),2),
+        #       np.round(np.nanmean(dfLabview['DelayLength']),2))
+
+        return delay, dfLabview
 
     # Read all structure files, process, save to H5. Also compute performance and save to H5
     def process_metadata_files(self, pwd):
         for mouseName, mouseRows in self.dataPaths.groupby(['mouse']):
             h5name = os.path.join(pwd, mouseName + '.h5')
-            prepcommon._h5_append_group(h5name, 'metadata')
+            prepcommon._h5_append_group(h5name, 'metadataTrial')
             prepcommon._h5_append_group(h5name, 'accuracy')
             prepcommon._h5_append_group(h5name, 'dprime')
+
+            timeStampLst = []
+            delayLst = []
 
             for idx, row in mouseRows.iterrows():
                 sessionName = row['day'] + '_' + row['session']
 
                 with h5py.File(h5name, 'a') as h5f:
-                    metaProcessed = sessionName in h5f['metadata'].keys()
+                    metaProcessed = sessionName in h5f['metadataTrial'].keys()
 
+                print(mouseName, sessionName)
                 if metaProcessed:
-                    print('already processed', mouseName, sessionName)
-                else:
-                    dfTrialStruct = self.read_trial_structure_as_pd(row['trialStructPath'], mouseName)
-                    dfTrialStruct.to_hdf(h5name, '/metadata/' + sessionName)
+                    print('-- already processed')
+                    continue
 
-                    # Calculate and store accuracy and dprime
-                    ttDict = prepcommon.count_trial_types(dfTrialStruct)
-                    acc = accuracy(ttDict['Hit'], ttDict['Miss'], ttDict['FA'], ttDict['CR'])
-                    dp = d_prime(ttDict['Hit'], ttDict['Miss'], ttDict['FA'], ttDict['CR'])
+                # Read metadata from two file types, reconcile
+                dfTrialStructMat = self.read_trial_structure_as_pd(row['trialStructPathMat'], mouseName)
+                timeStamp, dfTrialStructLabview = self.read_parse_labview_trial_structure_as_pd(row['trialStructPathLabview'])
+                delay, dfTrialStruct = self.reconcile_trial_structure(dfTrialStructMat, dfTrialStructLabview)
 
-                    with h5py.File(h5name, 'a') as h5f:
-                        h5f['accuracy'].create_dataset(sessionName, data=acc)
-                        h5f['dprime'].create_dataset(sessionName, data=dp)
+                # Store to file
+                timeStampLst += [timeStamp]
+                delayLst += [delay]
+                dfTrialStruct.to_hdf(h5name, '/metadataTrial/' + sessionName)
 
-    def get_append_delay_times(self, pathPreferences):
-        # Calculate delay times from metadata
-        rezLst = []
-        for idx, row in self.dataPaths.iterrows():
-            session = row['day'] + '_' + row['session']
-            fpath = os.path.join(pathPreferences, row['mouse'] + '.h5')
+                # Calculate and store accuracy and dprime
+                ttDict = prepcommon.count_trial_types(dfTrialStruct)
 
-            try:
-                df = pd.read_hdf(fpath, '/metadata/' + session)
-                dfHit = df[df['trialType'] == 'Hit']
+                print(ttDict)
 
-                lags = dfHit['decision_time'] - dfHit['stimulus_time'] - 2000
-                minLag = np.round(np.min(lags) / 1000, 2)
+                acc = accuracy(ttDict['Hit'], ttDict['Miss'], ttDict['FA'], ttDict['CR'])
+                dp = d_prime(ttDict['Hit'], ttDict['Miss'], ttDict['FA'], ttDict['CR'])
 
-                rezLst += [[row['mouse'], row['day'], row['session'], minLag]]
-            except:
-                print('session', session, 'has no metadata')
+                with h5py.File(h5name, 'a') as h5f:
+                    h5f['accuracy'].create_dataset(sessionName, data=acc)
+                    h5f['dprime'].create_dataset(sessionName, data=dp)
 
-        df = pd.DataFrame(rezLst, columns=['mousename', 'dateKey', 'sessionKey', 'delay'])
-
-        # Read sessions file
-        pwdSess = os.path.join(pathPreferences, 'sessions_tex.csv')
-        dfSess = pd.read_csv(pwdSess, sep='\t')
-
-        if 'delay' in dfSess.columns:
-            del dfSess['delay']
-
-        # Join the two
-        # dfJoin = pd.concat([dfSess, df], ignore_index=True, sort=False)
-        dfJoin = pd.merge(dfSess, df, how='left', on=['mousename', 'dateKey', 'sessionKey'])
-        dfJoin.to_csv(
-            os.path.join(pathPreferences, 'sessions_tex.csv'),
-            sep='\t', index=False
-        )
-
-        print(list(dfJoin['delay']))
+            pd.DataFrame({'timestamp': timeStampLst, 'delay': delayLst}).to_hdf(h5name, 'metadataSession')
 
     def get_append_active_passive(self, pathPreferences):
         '''
@@ -310,7 +370,7 @@ class preprocess:
         for mouseName, dfMouse in self.dataPaths.groupby(['mouse']):
             fpath = os.path.join(pathPreferences, mouseName + '.h5')
             with h5py.File(fpath) as f:
-                sessionsMeta = list(f['metadata'].keys())
+                sessionsMeta = list(f['metadataTrial'].keys())
 
             # Construct map from texture name to Hit/CR
             mapCanon = self.trial_map_go_nogo_bymouse(mouseName)
@@ -324,7 +384,7 @@ class preprocess:
                     continue
 
                 # Get metadata
-                df = pd.read_hdf(fpath, '/metadata/' + session)
+                df = pd.read_hdf(fpath, '/metadataTrial/' + session)
 
                 # Get active/passive
                 if os.path.isfile(row['pathActivePassive']):
@@ -333,7 +393,7 @@ class preprocess:
                     print('--Warning, no active/passive, filling with None')
                     df['Activity'] = None
 
-                df.to_hdf(fpath, '/metadata/' + session)
+                df.to_hdf(fpath, '/metadataTrial/' + session)
 
                 # print(df)
 
@@ -352,14 +412,18 @@ class preprocess:
             5. Set increment, return
         '''
 
-        fpath = os.path.join(pwd, mouseName + '.h5')
+        # fpath = os.path.join(pwd, mouseName + '.h5')
+        #
+        # df = pd.read_hdf(fpath, '/metadataTrial/' + session)
+        # timeStamps = pd.to_datetime(df['time_stamp'], format='%H:%M:%S.%f')
+        # timeDeltas = timeStamps - timeStamps[0]
+        #
+        # timesSh = np.arange(dataRSP.shape[1]) / FPS
+        # timesRS = np.array([t.total_seconds() + timesSh for t in timeDeltas])
 
-        df = pd.read_hdf(fpath, '/metadata/' + session)
-        timeStamps = pd.to_datetime(df['time_stamp'], format='%H:%M:%S.%f')
-        timeDeltas = timeStamps - timeStamps[0]
-
+        df = pd.read_hdf(fpath, '/metadataTrial/' + session)
         timesSh = np.arange(dataRSP.shape[1]) / FPS
-        timesRS = np.array([t.total_seconds() + timesSh for t in timeDeltas])
+        timesRS = np.array([timesSh + t for t in df['Time']])
 
         if timesRS.shape[0] < dataRSP.shape[0]:
             print('Warning: shape mismatch', timesRS.shape[0], dataRSP.shape[0])
@@ -381,7 +445,7 @@ class preprocess:
             for idx, row in dfMouse.iterrows():
                 session = row['day'] + '_' + row['session']
                 with h5py.File(h5fname, 'a') as h5f:
-                    if session not in h5f['metadata'].keys():
+                    if session not in h5f['metadataTrial'].keys():
                         print(mouseName, session, 'has no metadata, skipping')
                         continue
 
@@ -419,7 +483,7 @@ class preprocess:
             for idx, row in dfMouse.iterrows():
                 session = row['day'] + '_' + row['session']
                 with h5py.File(h5fname, 'a') as h5f:
-                    if session not in h5f['metadata'].keys():
+                    if session not in h5f['metadataTrial'].keys():
                         print(mouseName, session, 'has no metadata, skipping')
                         continue
 
@@ -461,7 +525,7 @@ class preprocess:
                     del f[datatype][session]
                     print('deleted', session, 'from', datatype)
 
-            for metaclass in ['metadata', 'accuracy', 'dprime']:
+            for metaclass in ['metadataTrial', 'metadataSession', 'accuracy', 'dprime']:
                 if session in f[metaclass]:
                     del f[metaclass][session]
                     print('deleted', session, 'from', metaclass)
@@ -473,7 +537,7 @@ class preprocess:
                 session = row['day'] + '_' + row['session']
 
                 with h5py.File(h5fname, 'r') as h5f:
-                    if session in h5f['metadata']:
+                    if session in h5f['metadataTrial']:
                         # if mouseName == 'mou_9':
                         #     print(h5f['bn_session'].keys())
                         #     return
@@ -483,18 +547,18 @@ class preprocess:
                         print('skipping non-existent session', session)
                         continue
 
-                df = pd.read_hdf(h5fname, '/metadata/' + session)
+                df = pd.read_hdf(h5fname, '/metadataTrial/' + session)
 
                 nTrialMeta = len(df)
 
                 if nTrialData != nTrialMeta:
                     if nTrialData < nTrialMeta:
-                        print(mouseName, session, nTrialData, nTrialMeta, 'driopping useless metadata')
+                        print(mouseName, session, nTrialData, nTrialMeta, 'dropping excess metadata')
                         nDiff = nTrialMeta - nTrialData
                         df.drop(df.tail(nDiff).index, inplace=True)  # drop last n rows
-                        df.to_hdf(h5fname, '/metadata/' + session)
+                        df.to_hdf(h5fname, '/metadataTrial/' + session)
                     else:
-                        print(mouseName, session, nTrialData, nTrialMeta, 'dropping extra unassociated data')
+                        print(mouseName, session, nTrialData, nTrialMeta, 'dropping excess data')
                         nCrop = nTrialData - nTrialMeta
 
                         with h5py.File(h5fname, 'a') as h5f:
@@ -513,7 +577,7 @@ class preprocess:
             for idx, row in dfMouse.iterrows():
                 session = row['day'] + '_' + row['session']
                 with h5py.File(h5fname, 'a') as h5f:
-                    if session not in h5f['metadata'].keys():
+                    if session not in h5f['metadataTrial'].keys():
                         print(mouseName, session, 'has no metadata, skipping')
                         continue
 
@@ -526,3 +590,73 @@ class preprocess:
                 overlap = max(0, nTimestepVid - rewStartIdx)
 
                 print(mouseName, session, delay, nTimestepVid, rewStartIdx, overlap)
+
+############################
+#  Behaviour
+############################
+
+    def behaviour_tune_resample_kernel(self, mousename, session, sig2,
+                                       trialType='Hit', trialIdx=0, srcFreq=30.0, trgFreq=20.0):
+        dayKey = '_'.join(session.split('_')[:3])
+        sessionKey = session.split('_')[3]
+
+        idx, row = pd_is_one_row(pd_query(self.dataPaths, {'mouse': mousename, 'day': dayKey, 'session':sessionKey}))
+
+        prepcommon.behaviour_tune_resample_kernel(row['pathMovementVectors'], sig2,
+                                                  trialType=trialType, trialIdx=trialIdx, srcFreq=srcFreq, trgFreq=trgFreq)
+
+    def read_parse_behaviour(self, pwd, skipExisting=False, srcFreq=30.0, trgFreq=20.0):
+        srcNames = np.array(['100', '1200', 'FA', 'MISS', 'early'])
+        trgNames = np.array(['Hit', 'CR', 'FA', 'Miss', 'Early'])
+        sig2 = (1.0 / trgFreq)**2 / 16  # Choose a sharper kernel than normal because of binary nature of data
+
+        # Read behaviour file
+        for mousename, dfMouse in self.dataPaths.groupby('mouse'):
+            h5Path = pwd + '/' + mousename + '.h5'
+
+            if self.mouse_is_flipped_hit_cr(mousename):
+                trialNameMap = {'moveVect_' + s: t for s, t in zip(srcNames, trgNames[[1, 0, 2, 3, 4]])}
+            else:
+                trialNameMap = {'moveVect_' + s: t for s, t in zip(srcNames, trgNames)}
+
+            for idx, row in dfMouse.iterrows():
+                pwdMove = row['pathMovementVectors']
+                if not os.path.isfile(pwdMove):
+                    print('Warning:', mousename, row['day'], row['session'], 'has no movement, skipping')
+                else:
+                    # Get timesteps from h5 file
+                    session = row['day'] + '_' + row['session']
+                    with h5py.File(h5Path, 'r') as f:
+                        if session not in f['metadataTrial'].keys():
+                            print(session, 'dropped from final dataset, ignore')
+                            continue
+
+                        if not skipExisting and ('movementVectors' in f.keys()) and (session in f['movementVectors'].keys()):
+                            print(session, 'already calculated, skipping')
+                            continue
+
+                        nTrialData, nSampleData, _ = f['raw'][session].shape
+
+                    print('doing', mousename, session)
+
+                    # Get trialTypeNames from h5 file
+                    dfMeta = pd.read_hdf(h5Path, 'metadataTrial/' + session)
+                    trialTypeNames = np.array(dfMeta['TrialType'])
+                    assert nTrialData == len(trialTypeNames)
+
+                    # Read and resample movement data from mat file
+                    movementRS = prepcommon.read_resample_movement_data(pwdMove, trialTypeNames, nTrialData,
+                                                                        nSampleData, trialNameMap, sig2,
+                                                                        srcFreq=srcFreq, trgFreq=trgFreq)
+
+                    with h5py.File(h5Path, 'a') as f:
+                        # Create movement group if not created
+                        if 'movementVectors' not in f.keys():
+                            f.create_group('movementVectors')
+
+                        # Overwrite dataset if it is already there and was not skipped
+                        if session in f['movementVectors'].keys():
+                            del f['movementVectors'][session]
+
+                        # Write to h5
+                        f['movementVectors'][session] = movementRS

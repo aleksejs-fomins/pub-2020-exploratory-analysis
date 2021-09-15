@@ -28,9 +28,10 @@ class preprocess:
 
         # Find parse TGT files
         self.dataPaths = pd.DataFrame(columns=['mouse', 'day', 'session', 'sessionPath', #'trialIndPath',
-                                               'trialStructPath', 'pathActivePassive'])
+                                               'trialStructPath', 'pathActivePassive', 'pathMovementVectors'])
+
         self.pathT1 = defaultdict(dict)
-        self.find_parse_data_paths(pathDict['TGT'])
+        self.find_parse_data_paths(pathDict['AUD'])
 
         # Find parse Overlay
         # self.pathRef = {}
@@ -41,9 +42,9 @@ class preprocess:
         return sorted(list(set(self.dataPaths['mouse'])))
 
     # Find necessary file paths in the TDT folder
-    def find_parse_data_paths(self, pathTDT):
+    def find_parse_data_paths(self, pathAUD):
         for mouseName, dfMouse in self.dfSession.groupby(['mousename']):
-            pathMouse = os.path.join(pathTDT, mouseName)
+            pathMouse = os.path.join(pathAUD, mouseName)
             prepcommon._testdir(pathMouse)
 
             for dayName, dfDay in dfMouse.groupby(['dateKey']):
@@ -68,16 +69,18 @@ class preprocess:
 
                         pathActivePassive = os.path.join(pathMat, 'trials_with_and_wo_initial_moves_OCIA_from_movie.mat')
 
+                        pathMovementVectors = os.path.join(pathMat, 'move_vectors_from_movie.mat')
+
                         prepcommon._testdir(pathSession)
                         prepcommon._testdir(pathMat)
                         # prepcommon._testfile(pathTrialInd)
                         prepcommon._testfile(pathTrialStruct)
                         prepcommon._testfile(pathActivePassive)
+                        prepcommon._testfile(pathMovementVectors, critical=False)
 
                         self.dataPaths = pd_append_row(self.dataPaths, [
                             mouseName, dayName, sessionSuffix, pathSession, #pathTrialInd,
-                            pathTrialStruct,
-                            pathActivePassive
+                            pathTrialStruct, pathActivePassive, pathMovementVectors
                         ])
 
     # Find necessary file paths in overlay folder
@@ -416,3 +419,72 @@ class preprocess:
                 overlap = max(0, nTimestepVid - rewStartIdx)
 
                 print(mouseName, session, delay, nTimestepVid, rewStartIdx, overlap)
+
+############################
+#  Behaviour
+############################
+
+    def behaviour_tune_resample_kernel(self, mousename, session, sig2,
+                                       trialType='Hit', trialIdx=0, srcFreq=30.0, trgFreq=20.0):
+        dayKey = '_'.join(session.split('_')[:3])
+        sessionKey = session.split('_')[3]
+
+        idx, row = pd_is_one_row(pd_query(self.dataPaths, {'mouse': mousename, 'day': dayKey, 'session':sessionKey}))
+
+        prepcommon.behaviour_tune_resample_kernel(row['pathMovementVectors'], sig2,
+                                                  trialType=trialType, trialIdx=trialIdx, srcFreq=srcFreq, trgFreq=trgFreq)
+
+    def read_parse_behaviour(self, pwd, skipExisting=False, srcFreq=30.0, trgFreq=20.0):
+        srcNames = np.array(['hit', 'CR', 'FA', 'miss', 'early'])
+        trgNames = np.array(['Hit', 'CR', 'FA', 'Miss', 'Early'])
+        trialNameMap = {'moveVect_' + s: t for s, t in zip(srcNames, trgNames)}
+
+        sig2 = (1.0 / trgFreq)**2 / 16  # Choose a sharper kernel than normal because of binary nature of data
+
+        # Read behaviour file
+        for mousename, dfMouse in self.dataPaths.groupby('mouse'):
+            h5Path = pwd + '/' + mousename + '.h5'
+
+            for idx, row in dfMouse.iterrows():
+                pwdMove = row['pathMovementVectors']
+                if not os.path.isfile(pwdMove):
+                    print('Warning:', mousename, row['day'], row['session'], 'has no movement, skipping')
+                else:
+                    # Get timesteps from h5 file
+                    session = mousename + '_' + row['day'] + '_' + row['session']
+                    with h5py.File(h5Path, 'r') as f:
+                        if session not in f['metadata'].keys():
+                            print(session, 'dropped from final dataset, ignore')
+                            continue
+
+                        if not skipExisting and ('movementVectors' in f.keys()) and (session in f['movementVectors'].keys()):
+                            print(session, 'already calculated, skipping')
+                            continue
+
+                        nTrialData, nSampleData, _ = f['raw'][session].shape
+
+                    print('doing', mousename, session)
+
+                    # Get trialTypeNames from h5 file
+                    dfMeta = pd.read_hdf(h5Path, 'metadata/' + session)
+                    trialTypeNames = np.array(dfMeta['trialType'])
+                    if nTrialData != len(trialTypeNames):
+                        print('WARNING: Internal trial number mismatch', nTrialData, len(trialTypeNames))
+                        nTrialData = max(nTrialData, len(trialTypeNames))
+
+                    # Read and resample movement data from mat file
+                    movementRS = prepcommon.read_resample_movement_data(pwdMove, trialTypeNames, nTrialData,
+                                                                        nSampleData, trialNameMap, sig2,
+                                                                        srcFreq=srcFreq, trgFreq=trgFreq)
+
+                    with h5py.File(h5Path, 'a') as f:
+                        # Create movement group if not created
+                        if 'movementVectors' not in f.keys():
+                            f.create_group('movementVectors')
+
+                        # Overwrite dataset if it is already there and was not skipped
+                        if session in f['movementVectors'].keys():
+                            del f['movementVectors'][session]
+
+                        # Write to h5
+                        f['movementVectors'][session] = movementRS

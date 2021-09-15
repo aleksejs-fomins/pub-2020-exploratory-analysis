@@ -10,6 +10,7 @@ from scipy.spatial import ConvexHull
 from mesostat.utils.matlab_helper import loadmat
 from mesostat.utils.arrays import numpy_merge_dimensions
 from mesostat.utils.signals.fit import natural_cubic_spline_fit_reg
+from mesostat.utils.signals.resample import resample_kernel
 
 
 #############################
@@ -206,7 +207,7 @@ def extract_channel_data(vid, imgAllen):
 # Count number of trial types of each type. Ensure absent trials have 0 counts
 def count_trial_types(df):
     targetTypes = ['Hit', 'Miss', 'CR', 'FA']
-    d = df['trialType'].value_counts()
+    d = df['TrialType'].value_counts()
     rezLst = [d[k] if k in d.keys() else 0 for k in targetTypes]
     return dict(zip(targetTypes, rezLst))
 
@@ -297,3 +298,96 @@ def example_poly_fit(times, dataRSP, iCh=0, ord=2, alpha=0.01):
     plt.plot(timesFlat, y)
     plt.ylabel(str(iCh))
     plt.show()
+
+############################
+#  Behaviour
+############################
+
+
+def _behaviour_resample(matRS, nSampleSrc, srcFreq, trgFreq, sig2):
+    # Figure out timings of source and target timesteps
+    nSampleTrg = int(nSampleSrc / srcFreq * trgFreq)
+    timesSrc = np.arange(nSampleSrc) / srcFreq
+    timesTrg = np.arange(nSampleTrg) / trgFreq
+
+    # Perform resample
+    K = resample_kernel(timesSrc, timesTrg, sig2=sig2)
+    rezRS = matRS.dot(K.T)
+    return timesSrc, timesTrg, rezRS
+
+
+def behaviour_tune_resample_kernel(pwd, sig2, trialType='Hit', trialIdx=0, srcFreq=30.0, trgFreq=20.0):
+    # Read behaviour matrix
+    matDict = pymatreader.read_mat(pwd)
+    print(matDict.keys())
+
+    matRS = matDict[trialType].T
+    nTrialSrc, nSampleSrc = matRS.shape
+
+    print(matRS.shape)
+    timesSrc, timesTrg, rezRS = _behaviour_resample(matRS, nSampleSrc, srcFreq, trgFreq, sig2)
+
+    # Plot original and resampled data
+    plt.figure(figsize=(10,4))
+    plt.plot(timesSrc, matRS[trialIdx], label='src')
+    plt.plot(timesTrg, rezRS[trialIdx], label='trg')
+    plt.legend()
+    plt.show()
+
+
+def read_resample_movement_data(pwdMove, trialTypeNames, nTrialData, nSampleData, trialNameMap, sig2, srcFreq=30.0, trgFreq=20.0):
+    # Make array of NAN nTrial x nTime (as in data)
+    movementRS = np.full((nTrialData, nSampleData), np.nan)
+
+    # Read behaviour matrix
+    matDict = pymatreader.read_mat(pwdMove)
+
+    # for each trialType, resample 30Hz to 20Hz (3-step window), fill matrix
+    for srcName, trgName in trialNameMap.items():
+        if srcName in matDict.keys():
+            movementRawRS = matDict[srcName].T  # Original is SR, so transpose
+
+            if movementRawRS.ndim == 2:
+                nTrialSrc, nSampleSrc = movementRawRS.shape
+            elif movementRawRS.ndim == 1:
+                nTrialSrc, nSampleSrc = 1, movementRawRS.shape[0]
+                if nSampleSrc == 0:
+                    nTrialSrc = 0
+            else:
+                raise IOError("Unexpected shape", movementRawRS.shape)
+
+            # Test that the number of behavioural trials data trials of this type match
+            # print(trgName, nTrialSrc, np.sum(trialTypeNames == trgName))
+
+            if nTrialSrc == 0:
+                print('--No trials for ', trgName, ', skipping')
+                continue
+
+            timesSrc, timesTrg, rezRS = _behaviour_resample(movementRawRS, nSampleSrc, srcFreq, trgFreq, sig2)
+
+            # Find number of target trials and timesteps
+            trialTypeIdxs = trialTypeNames == trgName
+            nTrialTrg = np.sum(trialTypeIdxs)
+            nSampleTrg = len(timesTrg)
+
+            # Augment or crop number of trials
+            if nTrialSrc != nTrialTrg:
+                print('Warning: Trial mismatch:', trgName, nTrialSrc, np.sum(trialTypeNames == trgName), ': cropping')
+                if nTrialSrc > nTrialTrg:
+                    rezRS = rezRS[:nTrialTrg]
+                else:
+                    tmpRS = np.full((nTrialTrg, nSampleTrg), np.nan)
+                    tmpRS[:nTrialSrc] = rezRS
+                    rezRS = tmpRS
+
+            # Augment or crop duration
+            if nSampleTrg > nSampleData:
+                print('too long, crop', nSampleTrg, nSampleData)
+                movementRS[trialTypeIdxs] = rezRS[:, :nSampleData]  # If behaviour too long, crop it
+            elif nSampleTrg > nSampleData:
+                print('too short, pad', nSampleTrg, nSampleData)
+                movementRS[trialTypeIdxs, :nSampleTrg] = rezRS  # If behaviour too short, pad it
+            else:
+                movementRS[trialTypeIdxs] = rezRS
+
+    return movementRS
