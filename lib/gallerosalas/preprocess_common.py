@@ -207,7 +207,7 @@ def extract_channel_data(vid, imgAllen):
 # Count number of trial types of each type. Ensure absent trials have 0 counts
 def count_trial_types(df):
     targetTypes = ['Hit', 'Miss', 'CR', 'FA']
-    d = df['TrialType'].value_counts()
+    d = df['trialType'].value_counts()
     rezLst = [d[k] if k in d.keys() else 0 for k in targetTypes]
     return dict(zip(targetTypes, rezLst))
 

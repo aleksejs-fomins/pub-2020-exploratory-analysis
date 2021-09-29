@@ -287,32 +287,42 @@ class preprocess:
         return timestamp, dfMeta
 
     # Take the best of two arrays
-    def reconcile_trial_structure(self, dfMat, dfLabview):
+    def reconcile_trial_structure(self, dfMat, dfLabview, dataRSPShape):
         # Compare number of trials
         assert len(dfMat) == len(dfLabview)
+        if len(dfMat) != dataRSPShape[0]:
+            if len(dfMat) < dataRSPShape[0]:
+                raise ValueError(len(dfMat), dataRSPShape[0])
+            else:
+                print("Warning, mismatch between video trial number and metatata", len(dfMat), dataRSPShape[0], '; cropping')
+                dfMatEff = dfMat.head(dataRSPShape[0])
+                dfLabviewEff = dfLabview.head(dataRSPShape[0])
+        else:
+            dfMatEff = dfMat
+            dfLabviewEff = dfLabview
 
         # Compare trial idxs for hit, miss, CR, FA
         for trialType in ['Hit', 'CR', 'Miss', 'FA']:
-            idxsTrMat = np.array(dfMat['trialType'] == trialType)
-            idxsTrLV = np.array(dfLabview['TrialType'] == trialType)
+            idxsTrMat = np.array(dfMatEff['trialType'] == trialType)
+            idxsTrLV = np.array(dfLabviewEff['TrialType'] == trialType)
             np.testing.assert_array_equal(idxsTrMat, idxsTrLV)
 
         # Delay is wrong in MAT, use LV instead
-        delay = np.round(np.nanmean(dfLabview['DelayLength']),2)
+        delay = np.round(np.nanmean(dfLabviewEff['DelayLength']),2)
 
         # Trial labels are better in MAT, reuse
-        dfLabview['TrialType'] = list(dfMat['trialType'])
+        dfLabviewEff['trialType'] = list(dfMatEff['trialType'])
 
         # print('Mat',
-        #       np.round(np.nanmin(dfMat['delayLength']),2),
-        #       np.round(np.nanmax(dfMat['delayLength']),2),
-        #       np.round(np.nanmean(dfMat['delayLength']),2))
+        #       np.round(np.nanmin(dfMatEff['delayLength']),2),
+        #       np.round(np.nanmax(dfMatEff['delayLength']),2),
+        #       np.round(np.nanmean(dfMatEff['delayLength']),2))
         # print('LV',
         #       np.round(np.nanmin(dfLabview['DelayLength']),2),
         #       np.round(np.nanmax(dfLabview['DelayLength']),2),
         #       np.round(np.nanmean(dfLabview['DelayLength']),2))
 
-        return delay, dfLabview
+        return delay, dfLabviewEff
 
     # Read all structure files, process, save to H5. Also compute performance and save to H5
     def process_metadata_files(self, pwd):
@@ -322,9 +332,7 @@ class preprocess:
             prepcommon._h5_append_group(h5name, 'accuracy')
             prepcommon._h5_append_group(h5name, 'dprime')
 
-            timeStampLst = []
-            delayLst = []
-
+            dfMetaSession = pd.DataFrame(columns=['session', 'timestamp', 'delay'])
             for idx, row in mouseRows.iterrows():
                 sessionName = row['day'] + '_' + row['session']
 
@@ -336,15 +344,17 @@ class preprocess:
                     print('-- already processed')
                     continue
 
-                # Read metadata from two file types, reconcile
+                # Read metadata from two file types and data, reconcile
+                with h5py.File(h5name, 'r') as f:
+                    dataRSPShape = f['data'][sessionName].shape
+
                 dfTrialStructMat = self.read_trial_structure_as_pd(row['trialStructPathMat'], mouseName)
                 timeStamp, dfTrialStructLabview = self.read_parse_labview_trial_structure_as_pd(row['trialStructPathLabview'])
-                delay, dfTrialStruct = self.reconcile_trial_structure(dfTrialStructMat, dfTrialStructLabview)
+                delay, dfTrialStruct = self.reconcile_trial_structure(dfTrialStructMat, dfTrialStructLabview, dataRSPShape)
 
                 # Store to file
-                timeStampLst += [timeStamp]
-                delayLst += [delay]
                 dfTrialStruct.to_hdf(h5name, '/metadataTrial/' + sessionName)
+                dfMetaSession = pd_append_row(dfMetaSession, [sessionName, timeStamp, delay])
 
                 # Calculate and store accuracy and dprime
                 ttDict = prepcommon.count_trial_types(dfTrialStruct)
@@ -358,7 +368,7 @@ class preprocess:
                     h5f['accuracy'].create_dataset(sessionName, data=acc)
                     h5f['dprime'].create_dataset(sessionName, data=dp)
 
-            pd.DataFrame({'timestamp': timeStampLst, 'delay': delayLst}).to_hdf(h5name, 'metadataSession')
+            dfMetaSession.to_hdf(h5name, 'metadataSession')
 
     def get_append_active_passive(self, pathPreferences):
         '''
@@ -525,7 +535,7 @@ class preprocess:
                     del f[datatype][session]
                     print('deleted', session, 'from', datatype)
 
-            for metaclass in ['metadataTrial', 'metadataSession', 'accuracy', 'dprime']:
+            for metaclass in ['metadataTrial', 'accuracy', 'dprime']:
                 if session in f[metaclass]:
                     del f[metaclass][session]
                     print('deleted', session, 'from', metaclass)
@@ -583,7 +593,8 @@ class preprocess:
 
                     dataRAW = np.copy(h5f['data'][session])
 
-                delay = pd_is_one_row(pd_query(self.dfSession, {'mousename' : mouseName, 'dateKey' : row['day'], 'sessionKey' : row['session']}))[1]['delay']
+                dfQuery = pd_query(self.dfSession, {'mousename' : mouseName, 'dateKey' : row['day'], 'sessionKey' : row['session']})
+                delay = pd_is_one_row(dfQuery)[1]['delay']
 
                 nTimestepVid = dataRAW.shape[1]
                 rewStartIdx = int((5 + delay) * 20)

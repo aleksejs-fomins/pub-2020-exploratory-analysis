@@ -53,8 +53,9 @@ class DataFCDatabase:
         print("Reading allen brain map")
         self._find_read_allen_map(param["root_path_data"])
 
-        print("Reading task structure")
-        self._find_read_task_structure(param["root_path_data"])
+        # print("Reading task structure")
+        # self._find_read_task_structure(param["root_path_data"])
+        self.timestamps = {'texture': 2.0, 'delay': 5.0}
 
         print("Reading session structure")
         self._find_read_session_structure(param["root_path_data"])
@@ -94,12 +95,12 @@ class DataFCDatabase:
         self.allenIndices = sorted(list(set(self.allenMap.flatten())))[2:]         # Indices of regions. Drop First two
         self.allenCounts = [np.sum(self.allenMap == i) for i in self.allenIndices] # Number of pixels per region
 
-    def _find_read_task_structure(self, path):
-        taskFileName = join(path, 'task_structure.json')
-
-        with open(taskFileName) as f:
-            self.timestamps = json.load(f)['timestamps']
-            self.timestamps = {float(k) : v for k,v in self.timestamps.items()}
+    # def _find_read_task_structure(self, path):
+    #     taskFileName = join(path, 'task_structure.json')
+    #
+    #     with open(taskFileName) as f:
+    #         self.timestamps = json.load(f)['timestamps']
+    #         self.timestamps = {float(k) : v for k,v in self.timestamps.items()}
 
     def _find_read_session_structure(self, path):
         pwdSessionStruct = join(path, "sessions_tex.csv")
@@ -137,7 +138,7 @@ class DataFCDatabase:
 
     def get_trial_types(self, session, mousename=None):
         df = self.get_metadata(session, mousename=mousename)
-        return np.array(df['TrialType'])
+        return np.array(df['trialType'])
 
     def get_trial_type_names(self):
         return ['Hit', 'Miss', 'CR', 'FA']
@@ -188,8 +189,16 @@ class DataFCDatabase:
             return (np.arange(nTime - window + 1) + (window - 1) / 2) / self.targetFreq
 
     def get_delay_length(self, mousename, session):
-        row = pd_is_one_row(pd_query(self.dfSessions, {'mousename': mousename, 'session': session}))[1]
-        return row['delay']
+        # row = pd_is_one_row(pd_query(self.dfSessions, {'mousename': mousename, 'session': session}))[1]
+        # return row['delay']
+        df = pd.read_hdf(self.datapaths[mousename], 'metadataSession')
+        return pd_is_one_row(df[df['session'] == session])[1]['delay']
+
+    # Get timestamps of events during single trial (seconds)
+    def get_timestamps(self, mousename, session):
+        timestamps = self.timestamps.copy()
+        timestamps['report'] = timestamps['delay'] + self.get_delay_length(mousename, session)
+        return timestamps
 
     def get_interval_names(self):
         return ['PRE', 'TEX', 'DEL', 'REW']
@@ -254,7 +263,6 @@ class DataFCDatabase:
             mousename = self.find_mouse_by_session(selectorVal)
             sessions = [selectorVal]
 
-
         dataLst = []
         for session in sessions:
             # If requested, only select sessions with Naive/Expert performance
@@ -272,6 +280,8 @@ class DataFCDatabase:
             # If requested, only select trials of particular type
             if trialType is not None:
                 trialTypes = self.get_trial_types(session, mousename=mousename)
+
+                print(dataRSP.shape, len(trialTypes))
                 dataRSP = dataRSP[trialTypes == trialType]
 
             # Apply ZScoring if requested
@@ -301,11 +311,12 @@ class DataFCDatabase:
 
         return dataLst
 
-    def label_plot_timestamps(self, ax, linecolor='y', textcolor='k', shX=-0.5, shY=0.05):
+    def label_plot_timestamps(self, ax, mousename, session, linecolor='y', textcolor='k', shX=-0.5, shY=0.05):
         # the x coords of this transformation are data, and the y coord are axes
         trans = transforms.blended_transform_factory(ax.transData, ax.transAxes)
 
-        for t, label in self.timestamps.items():
+        timestamps = self.get_timestamps(mousename, session)
+        for label, t in timestamps.items():
             ax.axvline(x=t, color=linecolor, linestyle='--')
             plt.text(t+shX, shY, label, color=textcolor, verticalalignment='bottom', transform=trans, rotation=90)
 
