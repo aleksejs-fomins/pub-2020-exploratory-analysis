@@ -1,14 +1,16 @@
-import os
+# import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
 from scipy.stats import wilcoxon #, mannwhitneyu, combine_pvalues
-from IPython.display import display
-from ipywidgets import IntProgress
+# from IPython.display import display
+# from ipywidgets import IntProgress
 
+from mesostat.utils.system import make_path
 from mesostat.utils.pandas_helper import pd_append_row, pd_pivot, pd_is_one_row, pd_query, pd_first_row
 from mesostat.visualization.mpl_matrix import imshow
+# from mesostat.visualization.mpl_timescale_bar import add_timescale_bar
 
 from mesostat.utils.matrix import offdiag_1D
 from mesostat.stat.testing.htests import classification_accuracy_weighted
@@ -16,6 +18,7 @@ from mesostat.stat.testing.htests import classification_accuracy_weighted
 from lib.common.datawrapper import get_data_list
 from lib.common.stat import test_metric_by_name
 from lib.common.param_sweep import DataParameterSweep, param_vals_to_suffix, pd_row_to_kwargs
+from lib.common.visualization import movie_mouse_trialtype
 
 
 def subset_dict(d1, d2):
@@ -83,7 +86,9 @@ def activity_brainplot_mouse(dataDB, xParamName, exclQueryLst=None, vmin=None, v
                 dataDB.plot_area_values(fig, ax[iMouse][iXParam], dataP, vmin=vmin, vmax=vmax, cmap='jet',
                                         haveColorBar=haveColorBar)
 
-        plt.savefig('activity_brainplot_mousephase_' + plotSuffix + '.png', dpi=dpi)
+        prefixPath = 'pics/activity/brainplot_mousephase/'
+        make_path(prefixPath)
+        plt.savefig(prefixPath + plotSuffix + '.png', dpi=dpi)
         plt.close()
 
 
@@ -123,7 +128,9 @@ def activity_brainplot_mousephase_subpre(dataDB, exclQueryLst=None, vmin=None, v
                     dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataPDelta, vmin=vmin, vmax=vmax, cmap='jet',
                                             haveColorBar=haveColorBar)
 
-        plt.savefig('activity_brainplot_mousephase_subpre_' + plotSuffix + '.png', dpi=dpi)
+        prefixPath = 'pics/activity/brainplot_mousephase/subpre/'
+        make_path(prefixPath)
+        plt.savefig(prefixPath + plotSuffix + '.png', dpi=dpi)
         plt.close()
 
 
@@ -161,7 +168,9 @@ def activity_brainplot_mousephase_submouse(dataDB, exclQueryLst=None, vmin=None,
                 dataDB.plot_area_values(fig, ax[iMouse][iInterv], dataPDelta, vmin=vmin, vmax=vmax, cmap='jet',
                                         haveColorBar=haveColorBar)
 
-        plt.savefig('activity_brainplot_mousephase_submouse_' + plotSuffix + '.png', dpi=dpi)
+        prefixPath = 'pics/activity/brainplot_mousephase/submouse/'
+        make_path(prefixPath)
+        plt.savefig(prefixPath + plotSuffix + '.png', dpi=dpi)
         plt.close()
 
 
@@ -197,7 +206,9 @@ def activity_brainplot_mouse_2DF(dbDict, intervNameMap, intervOrdMap, trialTypes
                             dataDB.plot_area_values(fig, ax[iDB][iMouse], dataP, vmin=vmin, vmax=vmax, cmap='jet',
                                                     haveColorBar=haveColorBar)
 
-                plt.savefig('activity_brainplot_mouse_2df_' + '_'.join([datatype, trialType, intervLabel]) + '.png', dpi=dpi)
+                prefixPath = 'pics/activity/brainplot_mousephase/2df/'
+                make_path(prefixPath)
+                plt.savefig(prefixPath + '_'.join([datatype, trialType, intervLabel]) + '.png', dpi=dpi)
                 plt.close()
 
 
@@ -254,7 +265,9 @@ def significance_brainplot_mousephase_byaction(dataDB, ds, performance=None, #ex
                                             haveColorBar=iInterv==nInterv-1)
 
         plotSuffix = '_'.join([datatype, str(performance), metric])
-        fig.savefig('significance_brainplot_'+plotSuffix+'.png')
+        prefixPath = 'pics/significance/brainplot_mousephase/byaction/'
+        make_path(prefixPath)
+        fig.savefig(prefixPath + plotSuffix+'.png')
         plt.close()
 
 
@@ -292,7 +305,9 @@ def classification_accuracy_brainplot_mousephase(dataDB, exclQueryLst, fontsize=
 
                 dataDB.plot_area_values(fig, ax[iMouse][iInterv], svcAcc, vmin=0.5, vmax=1.0, cmap='jet')
 
-        plt.savefig('classification_accuracy_brainplot_mousephase_' + plotSuffix + '.png')
+        prefixPath = 'pics/classification_accuracy/brainplot_mousephase/'
+        make_path(prefixPath)
+        plt.savefig(prefixPath + plotSuffix + '.png')
         plt.close()
 
 
@@ -356,7 +371,10 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
         plotSuffix = '_'.join([datatype, str(performance), intervName])
 
         sns.pairplot(data=pd.DataFrame(pSigDict), vars=mice)
-        plt.savefig('pics/consistency_significant_activity_bymouse_' + plotSuffix + '.png')
+
+        prefixPath = 'pics/consistency/significant_activity/byaction/bymouse/'
+        make_path(prefixPath)
+        plt.savefig(prefixPath + plotSuffix + '.png')
         plt.close()
 
         fig2, ax2 = plt.subplots()
@@ -364,7 +382,9 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
         imshow(fig2, ax2, corrCoef, title='Significance Correlation', haveColorBar=True, limits=[0, 1],
                xTicks=mice, yTicks=mice)
 
-        plt.savefig('pics/consistency_significant_activity_bymouse_corr_' + plotSuffix + '.png')
+        prefixPath = 'pics/consistency/significant_activity/byaction/bymouse_corr/'
+        make_path(prefixPath)
+        plt.savefig(prefixPath + plotSuffix + '.png')
         plt.close()
 
         avgConsistency = np.round(np.mean(offdiag_1D(corrCoef)), 2)
@@ -373,7 +393,10 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
     fig, ax = plt.subplots()
     dfPivot = pd_pivot(dfConsistency, *dfColumns)
     sns.heatmap(data=dfPivot, ax=ax, annot=True, vmax=1, cmap='jet')
-    fig.savefig('consistency_significant_activity_action_bymouse_metric_' + str(performance) + '.png')
+
+    prefixPath = 'pics/consistency/significant_activity/byaction/'
+    make_path(prefixPath)
+    fig.savefig(prefixPath + 'consistency_' + str(performance) + '.png')
     plt.close()
 
 
@@ -425,7 +448,10 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTria
                 corrCoef[iMouse, jMouse] = np.corrcoef(pSigDict[iName], pSigDict[jName])[0, 1]
 
         sns.pairplot(data=pd.DataFrame(pSigDict), vars=mice)
-        plt.savefig('pics/consistency_significant_activity_byphase_' + datatype + '_' + trialType + '.png')
+
+        prefixPath = 'pics/consistency/significant_activity/byphase/bymouse/'
+        make_path(prefixPath)
+        plt.savefig(prefixPath + datatype + '_' + trialType + '.png')
         plt.close()
 
         fig2, ax2 = plt.subplots()
@@ -433,7 +459,9 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTria
         imshow(fig2, ax2, corrCoef, title='Significance Correlation', haveColorBar=True, limits=[0, 1],
                xTicks=mice, yTicks=mice)
 
-        plt.savefig('pics/consistency_significant_activity_byphase_corr_' + datatype + '_' + trialType + '.png')
+        prefixPath = 'pics/consistency/significant_activity/byphase/bymouse_corr/'
+        make_path(prefixPath)
+        plt.savefig(prefixPath + datatype + '_' + trialType + '.png')
         plt.close()
 
         avgConsistency = np.round(np.mean(offdiag_1D(corrCoef)), 2)
@@ -442,7 +470,10 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTria
     fig, ax = plt.subplots()
     dfPivot = pd_pivot(dfConsistency, *dfColumns)
     sns.heatmap(data=dfPivot, ax=ax, annot=True, vmax=1, cmap='jet')
-    fig.savefig('consistency_significant_activity_phase_bymouse_metric_' + str(performance) + '.png')
+
+    prefixPath = 'pics/consistency/significant_activity/byphase/'
+    make_path(prefixPath)
+    fig.savefig(prefixPath + 'consistency_' + str(performance) + '.png')
     plt.close()
 
 
@@ -450,62 +481,24 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTria
 # Movies
 #############################
 
-def activity_brainplot_movie_mousetrialtype(dataDB, exclQueryLst=None, vmin=None, vmax=None, haveDelay=False,
-                                            fontsize=20, **kwargs):
+def calc_mean_sp(dataDB, mousename, calcKWArgs, haveDelay=False, **kwargsData):
+    dataLst = get_data_list(dataDB, haveDelay, mousename, **kwargsData)
+    dataRSP = np.concatenate(dataLst, axis=0)
+    dataSP = np.nanmean(dataRSP, axis=0)
+    return dataSP
 
-    assert 'trialType' in kwargs.keys(), 'Requires trial types'
-    assert 'intervName' not in kwargs.keys(), 'Movie intended for full range'
-    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
-    nMice = dps.param_size('mousename')
-    nTrialType = dps.param_size('trialType')
 
-    for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', 'trialType'])):
-        plotSuffix = param_vals_to_suffix(paramVals)
+def brainplot_mean(dataDB, fig, ax, data, **plotKWArgs):  # vmin, vmax
+    if 'cmap' not in plotKWArgs.keys():
+        plotKWArgs['cmap'] = 'jet'
 
-        # Store all preprocessed data first
-        dataDict = {}
-        for mousename, dfMouse in dfTmp.groupby(['mousename']):
-            for idx, row in dfMouse.iterrows():
-                trialType = row['trialType']
-                print('Reading data, ', plotSuffix, mousename, trialType)
+    dataDB.plot_area_values(fig, ax, data, **plotKWArgs)
 
-                kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
-                dataLst = get_data_list(dataDB, haveDelay, mousename, **kwargsThis)
-                dataRSP = np.concatenate(dataLst, axis=0)
-                dataSP = np.nanmean(dataRSP, axis=0)
-                dataDict[(mousename, trialType)] = dataSP
 
-        # Test that all datasets have the same duration
-        shapeSet = set([v.shape for v in dataDict.values()])
-        assert len(shapeSet) == 1
-        nTimes = shapeSet.pop()[0]
+def activity_brainplot_movie_mousetrialtype(dataDB, dataKWArgs, plotKWArgs, exclQueryLst=None, haveDelay=False,
+                                            fontsize=20, tTrgDelay=2.0, tTrgRew=2.0):
 
-        progBar = IntProgress(min=0, max=nTimes, description=plotSuffix)
-        display(progBar)  # display the bar
-        for iTime in range(nTimes):
-            outfname = 'activity_brainplot_mousetrialtype_' + plotSuffix + '_' + str(iTime) + '.png'
-            if os.path.isfile(outfname):
-                print('Already calculated', iTime, 'skipping')
-                progBar.value += 1
-                continue
-
-            fig, ax = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4 * nTrialType, 4 * nMice), tight_layout=True)
-
-            for iMouse, mousename in enumerate(dps.param('mousename')):
-                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-                for iTT, trialType in enumerate(dps.param('trialType')):
-                    ax[0][iTT].set_title(trialType, fontsize=fontsize)
-                    # print(datatype, mousename)
-
-                    dataP = dataDict[(mousename, trialType)][iTime]
-
-                    haveColorBar = iTT == nTrialType - 1
-                    dataDB.plot_area_values(fig, ax[iMouse][iTT], dataP, vmin=vmin, vmax=vmax, cmap='jet',
-                                            haveColorBar=haveColorBar)
-
-            plt.savefig(outfname)
-            # plt.close()
-            plt.cla()
-            plt.clf()
-            plt.close('all')
-            progBar.value += 1
+    prefixPath = 'pics/activity/brainplot_mousetrialtype/movies/'
+    movie_mouse_trialtype(dataDB, dataKWArgs, {}, plotKWArgs, calc_mean_sp, brainplot_mean,
+                          prefixPath=prefixPath, exclQueryLst=exclQueryLst, haveDelay=haveDelay, fontsize=fontsize,
+                          tTrgDelay=tTrgDelay, tTrgRew=tTrgRew)

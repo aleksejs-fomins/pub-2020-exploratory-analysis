@@ -5,10 +5,10 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy.stats import mannwhitneyu, fisher_exact
 from sklearn.metrics import cohen_kappa_score
-from pathlib import Path
 
 from IPython.display import display
 
+from mesostat.utils.system import make_path
 from mesostat.utils.matrix import drop_channels, offdiag_1D, matrix_copy_triangle_symmetric
 from mesostat.stat.stat import continuous_empirical_CDF
 from mesostat.stat.classification import confusion_matrix
@@ -17,10 +17,6 @@ from mesostat.stat.clustering import cluster_dist_matrix_min, cluster_plot
 from mesostat.utils.pandas_helper import pd_query, pd_merge_multiple, pd_is_one_row, pd_append_row, pd_pivot
 from mesostat.visualization.mpl_barplot import barplot_stacked_indexed, barplot_labeled, sns_barplot
 from mesostat.visualization.mpl_matrix import imshow
-
-
-def _makepath(path):
-    Path(path).mkdir(parents=True, exist_ok=True)
 
 
 def _vals_to_df(vals, valKey, keyDict):
@@ -121,7 +117,7 @@ def plot_cdf(h5fname, dfSummary, fontsize=20):
             ax[iPID].legend()
 
         prefixPath = 'pics/pid_avg/pid_cdf/'
-        _makepath(prefixPath)
+        make_path(prefixPath)
         plt.savefig(prefixPath + 'PID_cdf_'+'_'.join(key)+'.png')
         plt.close()
 
@@ -159,7 +155,7 @@ def plot_violin_test(h5fname, h5fnameRand, dfSummary, dfSummaryRand, fontsize=20
             ax[iPID].set_title(pidType, fontsize=fontsize)
 
         prefixPath = 'pics/pid_avg/pid_test_violin/'
-        _makepath(prefixPath)
+        make_path(prefixPath)
         plt.savefig(prefixPath + 'pics/PID_violin_'+'_'.join(key) + '.png')
         plt.close()
 
@@ -187,7 +183,7 @@ def barplot_avg(dataDB, h5fname, dfSummary, paramName, paramVals, fontsize=20):
             ax[iPID].set_title(pidType, fontsize=fontsize)
 
         prefixPath = 'pics/pid_avg/pid_avg_barplot_' + paramName + '/'
-        _makepath(prefixPath)
+        make_path(prefixPath)
         plt.savefig(prefixPath + 'PID_barplot_' + paramName + '_' + '_'.join(groupVals) + '.png')
         plt.close()
 
@@ -224,7 +220,7 @@ def plot_top_triplets(dataDB, h5fname, dfSummary, nTop=20, fontsize=20):
                                     yLabel='bits', title=pidType, iMax=None, rotation=90, fontsize=fontsize)
 
         prefixPath = 'pics/pid_3D/triplets_barplot/'
-        _makepath(prefixPath)
+        make_path(prefixPath)
         plt.savefig(prefixPath + 'pid_triplets_barplot' + '_'.join(key) + '.png', dpi=300)
         plt.close()
 
@@ -252,7 +248,7 @@ def plot_top_singlets(dataDB, h5fname, dfSummary, fontsize=20):
                                     yLabel='bits', title=pidType, iMax=None, rotation=90, fontsize=fontsize)
 
         prefixPath = 'pics/pid_1D/pid_singlets_top/'
-        _makepath(prefixPath)
+        make_path(prefixPath)
         plt.savefig(prefixPath + 'pid_singlets_barplot' + '_'.join(key) + '.png', dpi=300)
         plt.close()
 
@@ -287,7 +283,7 @@ def plot_singlets_brainplot(dataDB, h5fname, dfSummary, paramKey, paramNames, fo
                                                 vmin=0, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
 
             prefixPath = 'pics/pid_1D/pid_singlets_brainplot_' + paramKey + '/' + pidType + '/'
-            _makepath(prefixPath)
+            make_path(prefixPath)
             plotSuffix = '_'.join(list(key) + [pidType])
             plt.savefig(prefixPath + 'pid_brainplot_signlets_mouse' + paramKey + '_' + plotSuffix + '.png')
             plt.close()
@@ -329,7 +325,7 @@ def plot_singlets_brainplot_mousephase_subpre(dataDB, h5fname, dfSummary, fontsi
                                                 vmin=-vmax, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
 
             prefixPath = 'pics/pid_1D/pid_singlets_brainplot_subpre/' + pidType + '/'
-            _makepath(prefixPath)
+            make_path(prefixPath)
             plotSuffix = '_'.join(list(key) + [pidType])
             plt.savefig(prefixPath + 'pid_brainplot_signlets_mousephase_subpre_' + '_' + plotSuffix + '.png')
             plt.close()
@@ -370,7 +366,7 @@ def plot_singlets_brainplot_mousephase_submouse(dataDB, h5fname, dfSummary, font
                                                 vmin=-vmax, vmax=vmax, cmap='jet', haveColorBar=haveColorBar)
 
             prefixPath = 'pics/pid_1D/pid_singlets_brainplot_submouse/' + pidType + '/'
-            _makepath(prefixPath)
+            make_path(prefixPath)
             plotSuffix = '_'.join(list(key) + [pidType])
             plt.savefig('pid_brainplot_signlets_mousephase_submouse_' + '_' + plotSuffix + '.png')
             plt.close()
@@ -507,7 +503,7 @@ def plot_2D_avg(dataDB, h5fname, dfSummary, paramKey, paramNames, dropChannels=N
                                haveColorBar=iParam == nParam - 1, limits=[0, vmax])
 
             prefixPath = 'pics/pid_2D/pid_2D_avg_' + paramKey + '/' + pidType + '/'
-            _makepath(prefixPath)
+            make_path(prefixPath)
             pltSuffix = '_'.join([paramKey] + list(key) + [pidType])
             plt.savefig(prefixPath + 'pid_2D_avg_mouse' + pltSuffix + '.png')
             plt.close()
@@ -550,7 +546,7 @@ def plot_2D_target(dataDB, h5fname, dfSummary, trgChName, paramKey, paramNames, 
                                haveColorBar=iParam == nParam - 1, limits=[0, vmax])
 
             prefixPath = 'pics/pid_2D/pid_2D_' + trgChName + '_' + paramKey + '/' + pidType + '/'
-            _makepath(prefixPath)
+            make_path(prefixPath)
             pltSuffix = '_'.join([paramKey, trgChName] + list(key) + [pidType])
             plt.savefig(prefixPath + 'pid_2D_bytrg_mouse' + pltSuffix + '.png')
             plt.close()
@@ -597,7 +593,7 @@ def plot_2D_target_mousephase_subpre(dataDB, h5fname, dfSummary, trgChName, drop
                                cmap='jet', haveColorBar=iInterv == nInterv - 1, limits=[-vmax, vmax])
 
             prefixPath = 'pics/pid_2D/pid_2D_' + trgChName + '_subpre/' + pidType + '/'
-            _makepath(prefixPath)
+            make_path(prefixPath)
             pltSuffix = '_'.join([trgChName] + list(key) + [pidType])
             plt.savefig(prefixPath + 'pid_2D_bytrg_mousephase_subpre_' + pltSuffix + '.png')
             plt.close()
@@ -645,7 +641,7 @@ def plot_2D_target_mousephase_submouse(dataDB, h5fname, dfSummary, trgChName, dr
                                cmap='jet', haveColorBar=iInterv == nInterv - 1, limits=[-vmax, vmax])
 
             prefixPath = 'pics/pid_2D/pid_2D_' + trgChName + '_submouse/' + pidType + '/'
-            _makepath(prefixPath)
+            make_path(prefixPath)
             pltSuffix = '_'.join([trgChName] + list(key) + [pidType])
             plt.savefig(prefixPath + 'pid_2D_bytrg_mousephase_submouse_' + pltSuffix + '.png')
             plt.close()

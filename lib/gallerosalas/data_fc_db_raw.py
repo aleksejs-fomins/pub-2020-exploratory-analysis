@@ -17,6 +17,7 @@ from mesostat.visualization.mpl_colors import base_colors_rgb
 from mesostat.visualization.mpl_legend import plt_add_fake_legend
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.visualization.mpl_colors import sample_cmap, rgb_change_color
+from mesostat.visualization.mpl_fill import fill_between_x
 
 # Local
 from lib.gallerosalas.preprocess_common import calc_allen_shortest_distances
@@ -39,7 +40,7 @@ class DataFCDatabase:
         ##################################
         # self.targetTimesteps = [20, 95]      # Crop timeframe to important stuff
         # self.targetChannels = np.arange(25)  # Crop last two brain regions, because they disbehave (too many nans)
-        self.targetFreq = 20  # Hz
+        self.targetFPS = 20  # Hz
 
         ##################################
         # Find and parse data files
@@ -184,9 +185,9 @@ class DataFCDatabase:
     # If window greater than 1 is provided, return timesteps of data sweeped with a moving window of that length
     def get_times(self, nTime=160, window=1):
         if window == 1:
-            return np.arange(nTime) / self.targetFreq
+            return np.arange(nTime) / self.targetFPS
         else:
-            return (np.arange(nTime - window + 1) + (window - 1) / 2) / self.targetFreq
+            return (np.arange(nTime - window + 1) + (window - 1) / 2) / self.targetFPS
 
     def get_delay_length(self, mousename, session):
         # row = pd_is_one_row(pd_query(self.dfSessions, {'mousename': mousename, 'session': session}))[1]
@@ -194,10 +195,18 @@ class DataFCDatabase:
         df = pd.read_hdf(self.datapaths[mousename], 'metadataSession')
         return pd_is_one_row(df[df['session'] == session])[1]['delay']
 
+    def get_event_mean_time(self, mousename, session, eventName):
+        dfMetaTrial = self.get_metadata(session, mousename=mousename)
+        return np.nanmean(dfMetaTrial[eventName])
+
     # Get timestamps of events during single trial (seconds)
-    def get_timestamps(self, mousename, session):
+    def get_timestamps(self, mousename, session=None):
         timestamps = self.timestamps.copy()
-        timestamps['report'] = timestamps['delay'] + self.get_delay_length(mousename, session)
+        if session is not None:
+            timestamps['report'] = timestamps['delay'] + self.get_delay_length(mousename, session)
+            if mousename != 'mou_6':
+                timestamps['reward'] = self.get_event_mean_time(mousename, session, 'Reward')
+
         return timestamps
 
     def get_interval_names(self):
@@ -214,8 +223,11 @@ class DataFCDatabase:
             if mousename == 'mou_6':
                 raise IOError('Mouse 6 does not have reward')
 
-            delayLen = self.get_delay_length(mousename, session)
-            return [5 + np.array([delayLen, delayLen + 0.85])]
+            # delayLen = self.get_delay_length(mousename, session)
+            # return [5 + np.array([delayLen, delayLen + 0.85])]
+
+            rewardTime = self.get_event_mean_time(mousename, session, 'Reward')
+            return [[rewardTime-0.5, rewardTime+0.5]]
         elif interval == 'AVG':
             return [self.get_interval_times(session, mousename, i)[0] for i in ['TEX', 'DEL', 'REW']]
         else:
@@ -319,6 +331,14 @@ class DataFCDatabase:
         for label, t in timestamps.items():
             ax.axvline(x=t, color=linecolor, linestyle='--')
             plt.text(t+shX, shY, label, color=textcolor, verticalalignment='bottom', transform=trans, rotation=90)
+
+    def label_plot_intervals(self, ax, mousename, session):
+        colors = base_colors_rgb('tableau')
+
+        for iInterv, intervName in enumerate(self.get_interval_names()):
+            if (mousename != 'mou_6') or (intervName != 'REW'):
+                l, r = self.get_interval_times(session, mousename, intervName)[0]
+                fill_between_x(ax, [l], [r], colors[iInterv], alpha=0.5)
 
     def plot_area_clusters(self, fig, ax, regDict, haveLegend=False):
         trgShape = self.allenMap.shape + (3,)

@@ -204,6 +204,9 @@ class DataFCDatabase:
     def get_interval_names(self):
         return ['PRE', 'TEX', 'REW']
 
+    def get_timestamps(self, mousename, session=None):
+        return {'TEX': 3.0, 'REW': 6.0}
+
     def get_interval_times(self, session, mousename, interval):
         if interval == 'PRE':
             return -2, 0

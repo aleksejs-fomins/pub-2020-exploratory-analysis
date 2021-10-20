@@ -45,8 +45,8 @@ def plot_pca1_session(dataDB, mousename, session, trialTypesSelected=('Hit', 'CR
         ax[iDataType, 2].set_title('1st PCA trial-average')
         ax[iDataType, 2].legend()
 
-        dataDB.label_plot_timestamps(ax[iDataType, 1])
-        dataDB.label_plot_timestamps(ax[iDataType, 2])
+        dataDB.label_plot_timestamps(ax[iDataType, 1], mousename, session)
+        dataDB.label_plot_timestamps(ax[iDataType, 2], mousename, session)
     plt.show()
 
 
@@ -87,8 +87,8 @@ def plot_pca1_mouse(dataDB, trialTypesSelected=('Hit', 'CR'), skipReward=None):
                 ax[1, iMouse].plot(timesTrial, dataPCA, label=trialType)
                 ax[0, iMouse].fill_between(timesTrial, dataAvg-dataStd, dataAvg+dataStd, alpha=0.2)
 
-            dataDB.label_plot_timestamps(ax[0, iMouse])
-            dataDB.label_plot_timestamps(ax[1, iMouse])
+            # dataDB.label_plot_timestamps(ax[0, iMouse])
+            # dataDB.label_plot_timestamps(ax[1, iMouse])
             # ax[0, iMouse].legend()
             # ax[1, iMouse].legend()
             ax[0, iMouse].set_title(mousename)

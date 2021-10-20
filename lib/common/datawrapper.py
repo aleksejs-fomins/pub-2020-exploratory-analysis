@@ -52,6 +52,6 @@ def get_data_list(dataDB, haveDelay, mousename, tTrgDelay=2.0, tTrgRew=1.0, **kw
             delayStart = dataDB.get_interval_times(session, mousename, 'DEL')[0][0]
             delayEnd = delayStart + dataDB.get_delay_length(mousename, session)
             dataRSPLst += [resample_delay(dataRSP, delayStart, delayEnd, tTrgDelay=tTrgDelay, tTrgRew=tTrgRew,
-                                          FPS=dataDB.targetFreq, padReward=True)]
+                                          FPS=dataDB.targetFPS, padReward=True)]
 
     return dataRSPLst

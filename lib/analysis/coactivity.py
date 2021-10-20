@@ -7,16 +7,18 @@ from sklearn.decomposition import PCA
 from IPython.display import display
 from ipywidgets import IntProgress
 
+from mesostat.utils.system import make_path
 from mesostat.utils.signals.filter import zscore, drop_PCA, drop_PCA_3D
-import mesostat.stat.consistency.pca as pca
 from mesostat.utils.matrix import offdiag_1D, tril_1D
 from mesostat.utils.pandas_helper import pd_append_row, pd_pivot #, outer_product_df, drop_rows_byquery, pd_is_one_row, pd_query
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
+from mesostat.visualization.mpl_timescale_bar import add_timescale_bar
 from mesostat.stat.clustering import cluster_dist_matrix_max, cluster_plot
+import mesostat.stat.consistency.pca as pca
 
 from lib.common.datawrapper import get_data_list
-from lib.common.visualization import cluster_brain_plot
+from lib.common.visualization import cluster_brain_plot, movie_mouse_trialtype
 from lib.common.param_sweep import DataParameterSweep, param_vals_to_suffix, pd_row_to_kwargs
 
 
@@ -158,17 +160,26 @@ def plot_corr_mouse(dataDB, mc, estimator, xParamName, nDropPCA=None, dropChanne
                     _plot_corr_1D(figMono, axMono[iMouse][iXParam], channelLabels, rez2D, thrMono)
 
         # Save image
-        plotPrefix = 'corr_mouse' + xParamName + '_dropPCA_' + str(nDropPCA)
+        prefixPrefixPath = 'pics/corr/mouse' + xParamName + '/dropPCA_' + str(nDropPCA) + '/'
 
-        figCorr.savefig(plotPrefix + '_' + plotSuffix + '.png')
+        prefixPath = prefixPrefixPath + 'corr/'
+        make_path(prefixPath)
+        figCorr.savefig(prefixPath + 'corr_' + plotSuffix + '.png')
         plt.close(figCorr)
-        figClust.savefig(plotPrefix + '_clust_' + plotSuffix + '.png')
+
+        prefixPath = prefixPrefixPath + 'clust/'
+        make_path(prefixPath)
+        figClust.savefig(prefixPath + 'clust_' + plotSuffix + '.png')
         plt.close(figClust)
         if haveBrain:
-            figBrain.savefig(plotPrefix + '_clust_brainplot_' + plotSuffix + '.png')
+            prefixPath = prefixPrefixPath + 'clust_brainplot/'
+            make_path(prefixPath)
+            figBrain.savefig(prefixPath + 'clust_brainplot_' + plotSuffix + '.png')
             plt.close(figBrain)
         if haveMono:
-            figMono.savefig(plotPrefix + '_1D_' + plotSuffix + '.png')
+            prefixPath = prefixPrefixPath + '1D/'
+            make_path(prefixPath)
+            figMono.savefig(prefixPath + '1Dplot_' + plotSuffix + '.png')
             plt.close(figMono)
 
 
@@ -213,7 +224,9 @@ def plot_corr_mousephase_subpre(dataDB, mc, estimator, nDropPCA=None, dropChanne
                            haveColorBar=haveColorBar, limits=[-1, 1], cmap='RdBu_r')
 
         # Save image
-        figCorr.savefig('corr_subpre_dropPCA_' + str(nDropPCA) + '_' + plotSuffix + '.png')
+        prefixPath = 'pics/corr/mousephase/dropPCA_' + str(nDropPCA) + '/subpre/'
+        make_path(prefixPath)
+        figCorr.savefig(prefixPath + 'corr_' + plotSuffix + '.png')
         plt.close()
 
 
@@ -260,7 +273,9 @@ def plot_corr_mousephase_submouse(dataDB, mc, estimator, nDropPCA=None, dropChan
                            title='corr', haveColorBar=haveColorBar, limits=[-1,1], cmap='RdBu_r')
 
         # Save image
-        figCorr.savefig('corr_submouse__dropPCA_' + str(nDropPCA) + '_' + plotSuffix + '.png')
+        prefixPath = 'pics/corr/mousephase/dropPCA_' + str(nDropPCA) + '/submouse/'
+        make_path(prefixPath)
+        figCorr.savefig(prefixPath + 'corr_' + plotSuffix + '.png')
         plt.close()
 
 
@@ -305,7 +320,9 @@ def plot_corr_mouse_2DF(dfDict, mc, estimator, intervNameMap, intervOrdMap, corr
                                limits=[-1, 1], cmap='jet', haveColorBar=iMouse == nMice-1)
 
             # Save image
-            plt.savefig('corr_bystim_dropPCA_' + str(nDropPCA) + '_bn_session_' + plotSuffix + '.png')
+            prefixPath = 'pics/corr/bystim/dropPCA_' + str(nDropPCA) + '/'
+            make_path(prefixPath)
+            plt.savefig(prefixPath + 'corr_bn_session_' + plotSuffix + '.png')
             plt.close()
 
 
@@ -373,12 +390,17 @@ def plot_corr_consistency_l1_mouse(dataDB, nDropPCA=None, dropChannels=None, exc
 
             pPlot = sns.pairplot(data=pd.DataFrame(pairDict), vars=mice, kind='kde')
 
-            plt.savefig('corr_consistency_bymouse_scatter_' + plotSuffix + '.png')
+            prefixPath = 'pics/consistency/corr/mouse/dropPCA_' + str(nDropPCA) + '/scatter/'
+            make_path(prefixPath)
+            plt.savefig(prefixPath + 'scatter_' + plotSuffix + '.png')
             plt.close()
 
             fig, ax = plt.subplots()
             imshow(fig, ax, rezMat, haveColorBar=True, limits=[0,1], xTicks=mice, yTicks=mice, cmap='jet')
-            plt.savefig('corr_consistency_bymouse_metric_' + plotSuffix + '.png')
+
+            prefixPath = 'pics/consistency/corr/mouse/dropPCA_' + str(nDropPCA) + '/metric/'
+            make_path(prefixPath)
+            plt.savefig(prefixPath + 'metric_' + plotSuffix + '.png')
             plt.close()
 
             avgConsistency = np.round(np.mean(offdiag_1D(rezMat)), 2)
@@ -387,7 +409,10 @@ def plot_corr_consistency_l1_mouse(dataDB, nDropPCA=None, dropChannels=None, exc
         fig, ax = plt.subplots()
         dfPivot = pd_pivot(dfConsistency, *dfColumns)
         sns.heatmap(data=dfPivot, ax=ax, annot=True, vmin=0, vmax=1, cmap='jet')
-        fig.savefig('consistency_coactivity_metric_dropPCA_' + str(nDropPCA)+ '_' + plotExtraSuffix+'.png')
+
+        prefixPath = 'pics/consistency/corr/mouse/dropPCA_' + str(nDropPCA) + '/'
+        make_path(prefixPath)
+        fig.savefig(prefixPath + plotExtraSuffix + '.png')
         plt.close()
 
 
@@ -448,12 +473,17 @@ def plot_corr_consistency_l1_trialtype(dataDB, nDropPCA=None, dropChannels=None,
 
             pPlot = sns.pairplot(data=pd.DataFrame(pairDict), vars=trialTypes, kind='kde')
 
-            plt.savefig('corr_consistency_bymouse_scatter_' + fnameSuffix + '.png')
+            prefixPath = 'pics/consistency/corr/trialtype/dropPCA_' + str(nDropPCA) + '/scatter/'
+            make_path(prefixPath)
+            plt.savefig(prefixPath + 'scatter_' + fnameSuffix + '.png')
             plt.close()
 
             fig, ax = plt.subplots()
             imshow(fig, ax, rezMat, haveColorBar=True, limits=[0,1], xTicks=trialTypes, yTicks=trialTypes, cmap='jet')
-            plt.savefig('corr_consistency_bymouse_metric_' + fnameSuffix + '.png')
+
+            prefixPath = 'pics/consistency/corr/trialtype/dropPCA_' + str(nDropPCA) + '/metric/'
+            make_path(prefixPath)
+            plt.savefig(prefixPath + 'metric_' + fnameSuffix + '.png')
             plt.close()
 
             avgConsistency = np.round(np.mean(offdiag_1D(rezMat)), 2)
@@ -462,7 +492,10 @@ def plot_corr_consistency_l1_trialtype(dataDB, nDropPCA=None, dropChannels=None,
     fig, ax = plt.subplots()
     dfPivot = pd_pivot(dfConsistency, *dfColumns)
     sns.heatmap(data=dfPivot, ax=ax, annot=True, vmin=0, vmax=1, cmap='jet')
-    fig.savefig('consistency_coactivity_metric_dropPCA_' + str(nDropPCA) + '_' + datatype + '_' + str(performance) + '.png')
+
+    prefixPath = 'pics/consistency/corr/trialtype/dropPCA_' + str(nDropPCA) + '/'
+    make_path(prefixPath)
+    fig.savefig(prefixPath + datatype + '_' + str(performance) + '.png')
     plt.close()
 
 
@@ -513,12 +546,17 @@ def plot_corr_consistency_l1_phase(dataDB, nDropPCA=None, dropChannels=None, per
 
             pPlot = sns.pairplot(data=pd.DataFrame(pairDict), vars=phases, kind='kde')
 
-            plt.savefig('corr_consistency_bymouse_scatter_' + fnameSuffix + '.png')
+            prefixPath = 'pics/consistency/corr/phase/dropPCA_' + str(nDropPCA) + '/scatter/'
+            make_path(prefixPath)
+            plt.savefig(prefixPath + 'scatter_' + fnameSuffix + '.png')
             plt.close()
 
             fig, ax = plt.subplots()
             imshow(fig, ax, rezMat, haveColorBar=True, limits=[0,1], xTicks=phases, yTicks=phases, cmap='jet')
-            plt.savefig('corr_consistency_bymouse_metric_' + fnameSuffix + '.png')
+
+            prefixPath = 'pics/consistency/corr/phase/dropPCA_' + str(nDropPCA) + '/metric/'
+            make_path(prefixPath)
+            plt.savefig(prefixPath + 'metric_' + fnameSuffix + '.png')
             plt.close()
 
             avgConsistency = np.round(np.mean(offdiag_1D(rezMat)), 2)
@@ -527,7 +565,10 @@ def plot_corr_consistency_l1_phase(dataDB, nDropPCA=None, dropChannels=None, per
     fig, ax = plt.subplots()
     dfPivot = pd_pivot(dfConsistency, *dfColumns)
     sns.heatmap(data=dfPivot, ax=ax, annot=True, vmin=0, vmax=1, cmap='jet')
-    fig.savefig('consistency_coactivity_metric_dropPCA_' + str(nDropPCA) + '_' + datatype + '_' + str(performance) + '.png')
+
+    prefixPath = 'pics/consistency/corr/phase/dropPCA_' + str(nDropPCA) + '/'
+    make_path(prefixPath)
+    fig.savefig(prefixPath + datatype + '_' + str(performance) + '.png')
     plt.close()
 
 
@@ -702,65 +743,118 @@ def plot_pca_consistency(dataDB, intervNames=None, dropFirst=None, dropChannels=
 # Movies
 #######################
 
-def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, exclQueryLst=None, nDropPCA=None, haveDelay=False, fontsize=20, **kwargs):
-    assert 'trialType' in kwargs.keys(), 'Requires trial types'
-    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
-    nMice = dps.param_size('mousename')
-    nTrialType = dps.param_size('trialType')
+def calc_corr_s(dataDB, mousename, calcKWArgs, haveDelay=False, nDropPCA=None, **kwargsData):
+    mc = calcKWArgs['mc']
+    estimator = calcKWArgs['estimator']
 
-    for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', 'trialType'])):
-        plotSuffix = param_vals_to_suffix(paramVals)
+    dataLst = get_data_list(dataDB, haveDelay, mousename, **kwargsData)
+    dataRSP = np.concatenate(dataLst, axis=0)
+    if nDropPCA is not None:
+        dataRSP = drop_PCA_3D(dataRSP, nDropPCA)
 
-        # Store all preprocessed data first
-        dataDict = {}
-        for mousename, dfMouse in dfTmp.groupby(['mousename']):
-            for idx, row in dfMouse.iterrows():
-                trialType = row['trialType']
+    mc.set_data(dataRSP, 'rsp')
+    metricSettings = {'havePVal': False, 'estimator': estimator}
+    rezS = mc.metric3D('corr', 's', metricSettings=metricSettings)
+    return rezS
 
-                print('Reading data, ', plotSuffix, mousename, trialType)
 
-                kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
-                dataLst = get_data_list(dataDB, haveDelay, mousename, **kwargsThis)
-                dataRSP = np.concatenate(dataLst, axis=0)
+def plot_corr_s(dataDB, fig, ax, data, **plotKWArgs):   # limits=[-1, 1]
+    if 'cmap' not in plotKWArgs.keys():
+        plotKWArgs['cmap'] = 'jet'
 
-                if nDropPCA is not None:
-                    dataRSP = drop_PCA_3D(dataRSP, nDropPCA)
+    imshow(fig, ax, data, **plotKWArgs)
 
-                mc.set_data(dataRSP, 'rsp')
-                metricSettings = {'havePVal': False, 'estimator': estimator}
-                rezS = mc.metric3D('corr', 's', metricSettings=metricSettings)
-                dataDict[(mousename, trialType)] = rezS
 
-        # Test that all datasets have the same duration
-        shapeSet = set([v.shape for v in dataDict.values()])
-        assert len(shapeSet) == 1
-        nTimes = shapeSet.pop()[0]
+def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, dataKWArgs, plotKWArgs,
+                                   exclQueryLst=None, nDropPCA=None, haveDelay=False,
+                                   fontsize=20, tTrgDelay=2.0, tTrgRew=2.0):
 
-        progBar = IntProgress(min=0, max=nTimes, description=plotSuffix)
-        display(progBar)  # display the bar
-        for iTime in range(nTimes):
+    prefixPath = 'pics/corr/mousetrialType/dropPCA_' + str(nDropPCA) + '/movies/'
+    calcKWArgs = {'mc': mc, 'estimator': estimator}
 
-            figName = 'corr_mouseTrialType_dropPCA_' + str(nDropPCA) + '_' + plotSuffix + '_' + str(iTime) + '.png'
-            if os.path.isfile(figName):
-                print('--Already calculated', figName, 'skipping')
-                progBar.value += 1
-                continue
+    movie_mouse_trialtype(dataDB, dataKWArgs, calcKWArgs, plotKWArgs, calc_corr_s, plot_corr_s,
+                          prefixPath=prefixPath, exclQueryLst=exclQueryLst, haveDelay=haveDelay, fontsize=fontsize,
+                          tTrgDelay=tTrgDelay, tTrgRew=tTrgRew)
 
-            fig, ax = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4*nTrialType, 4*nMice), tight_layout=True)
-            for iMouse, mousename in enumerate(dps.param('mousename')):
-                ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
-                for iTT, trialType in enumerate(dps.param('trialType')):
-                    ax[0][iTT].set_title(trialType, fontsize=fontsize)
-                    # print(datatype, mousename)
 
-                    rezS = dataDict[(mousename, trialType)][iTime]
-
-                    haveColorBar = iTT == nTrialType - 1
-                    imshow(fig, ax[iMouse][iTT], rezS, limits=[-1, 1], cmap='jet', haveColorBar=haveColorBar)
-
-            plt.savefig(figName)
-            # plt.close()
-            plt.cla()
-            plt.clf()
-            plt.close('all')
-            progBar.value += 1
+# def plot_corr_movie_mousetrialtype(dataDB, mc, estimator,
+#                                    exclQueryLst=None, nDropPCA=None, haveDelay=False,
+#                                    fontsize=20, tTrgDelay=2.0, tTrgRew=2.0, **kwargs):
+#     prefixPath = 'pics/corr/mousetrialType/dropPCA_' + str(nDropPCA) + '/movies/'
+#
+#     assert 'trialType' in kwargs.keys(), 'Requires trial types'
+#     dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
+#     nMice = dps.param_size('mousename')
+#     nTrialType = dps.param_size('trialType')
+#
+#     for paramVals, dfTmp in dps.sweepDF.groupby(dps.invert_param(['mousename', 'trialType'])):
+#         plotSuffix = param_vals_to_suffix(paramVals)
+#
+#         # Store all preprocessed data first
+#         dataDict = {}
+#         for mousename, dfMouse in dfTmp.groupby(['mousename']):
+#             for idx, row in dfMouse.iterrows():
+#                 trialType = row['trialType']
+#
+#                 print('Reading data, ', plotSuffix, mousename, trialType)
+#
+#                 kwargsThis = pd_row_to_kwargs(row, parseNone=True, dropKeys=['mousename'])
+#                 dataLst = get_data_list(dataDB, haveDelay, mousename, tTrgDelay=tTrgDelay, tTrgRew=tTrgRew, **kwargsThis)
+#                 dataRSP = np.concatenate(dataLst, axis=0)
+#
+#                 if nDropPCA is not None:
+#                     dataRSP = drop_PCA_3D(dataRSP, nDropPCA)
+#
+#                 mc.set_data(dataRSP, 'rsp')
+#                 metricSettings = {'havePVal': False, 'estimator': estimator}
+#                 rezS = mc.metric3D('corr', 's', metricSettings=metricSettings)
+#                 dataDict[(mousename, trialType)] = rezS
+#
+#         # Test that all datasets have the same duration
+#         shapeSet = set([v.shape for v in dataDict.values()])
+#         assert len(shapeSet) == 1
+#         nTimes = shapeSet.pop()[0]
+#
+#         progBar = IntProgress(min=0, max=nTimes, description=plotSuffix)
+#         display(progBar)  # display the bar
+#         for iTime in range(nTimes):
+#             make_path(prefixPath)
+#             outfname = prefixPath + plotSuffix + '_' + str(iTime) + '.png'
+#
+#             if os.path.isfile(outfname):
+#                 print('--Already calculated', outfname, 'skipping')
+#                 progBar.value += 1
+#                 continue
+#
+#             fig, ax = plt.subplots(nrows=nMice, ncols=nTrialType, figsize=(4*nTrialType, 4*nMice), tight_layout=True)
+#             for iMouse, mousename in enumerate(dps.param('mousename')):
+#                 ax[iMouse][0].set_ylabel(mousename, fontsize=fontsize)
+#                 for iTT, trialType in enumerate(dps.param('trialType')):
+#                     ax[0][iTT].set_title(trialType, fontsize=fontsize)
+#                     # print(datatype, mousename)
+#
+#                     rezS = dataDict[(mousename, trialType)][iTime]
+#
+#                     haveColorBar = iTT == nTrialType - 1
+#                     imshow(fig, ax[iMouse][iTT], rezS, limits=[-1, 1], cmap='jet', haveColorBar=haveColorBar)
+#
+#             # Add a timescale bar to the figure
+#             timestamps = dataDB.get_timestamps(mousename, session=None)
+#             if 'delay' not in timestamps.keys():
+#                 tsKeys = ['PRE'] + list(timestamps.keys())
+#                 tsVals = list(timestamps.values()) + [nTimes / dataDB.targetFPS]
+#             else:
+#                 tsKeys = ['PRE'] + list(timestamps.keys()) + ['reward']
+#                 tsVals = list(timestamps.values()) + [timestamps['delay'] + tTrgDelay, nTimes / dataDB.targetFPS]
+#
+#             print(tsVals, iTime / dataDB.targetFPS)
+#             add_timescale_bar(fig, tsKeys, tsVals, iTime / dataDB.targetFPS)
+#
+#             plt.savefig(outfname, bbox_inches='tight')
+#             # plt.close()
+#             plt.cla()
+#             plt.clf()
+#             plt.close('all')
+#             progBar.value += 1
+#
+#     return prefixPath

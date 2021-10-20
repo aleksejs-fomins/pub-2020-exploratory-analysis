@@ -1,4 +1,4 @@
-import numpy
+import numpy as np
 
 from mesostat.stat.testing.htests import classification_accuracy_weighted, rstest_twosided
 

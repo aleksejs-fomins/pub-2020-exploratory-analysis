@@ -5,6 +5,7 @@ from IPython.display import display
 from ipywidgets import IntProgress
 import seaborn as sns
 
+from mesostat.utils.system import make_path
 from mesostat.utils.pandas_helper import pd_query, pd_move_cols_front, pd_append_row
 from mesostat.stat.machinelearning import drop_nan_rows
 from mesostat.visualization.mpl_barplot import sns_barplot
@@ -54,18 +55,21 @@ def plot_metric_bulk_1D(dataDB, ds, metricName, nameSuffix, prepFunc=None, xlim=
         if yscale is not None:
             ax.set_yscale(yscale)
 
-        if haveTimeLabels is not None:
+        if haveTimeLabels:
             dataDB.label_plot_timestamps(ax, linecolor='y', textcolor='k', shX=-0.5, shY=0.05)
 
         dataName = rowMouse.drop(['dset', 'mousename'])
         dataName = '_'.join([str(el) for el in dataName])
+
+        prefixPath = 'pics/bulk/' + metricName + '/'
+        make_path(prefixPath)
 
         ax.legend()
         ax.set_xlim(xlim)
         ax.set_ylim(ylim)
         ax.set_xlabel(nameSuffix)
         ax.set_ylabel(metricName)
-        plt.savefig('pics/' + dataName + '.png', dpi=200)
+        plt.savefig(prefixPath + dataName + '.png', dpi=200)
         plt.close()
 
 
@@ -130,7 +134,10 @@ def scatter_metric_bulk(ds, metricName, nameSuffix, prepFunc=None, xlim=None, yl
         if haveRegression:
             sns.regplot(ax=ax, x=np.hstack(xLst), y=np.hstack(yLst), scatter=False)
 
-        fig.savefig('pics/' + dataName + '.png')
+        prefixPath = 'pics/bulk/' + metricName + '/'
+        make_path(prefixPath)
+
+        fig.savefig(prefixPath + dataName + '.png')
         plt.close()
 
 
@@ -185,7 +192,11 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
             fig, ax = plt.subplots()
             sns_barplot(ax, dfData1, "mousename", metricName, 'trialType', annotHue=True, xOrd=mice, hOrd=trialTypes)
             # sns.barplot(ax=ax, x="mousename", y=metricName, hue='trialType', data=dfData1)
-            fig.savefig(metricName + '_barplot_trialtype_' + plotSuffix + '_' + intervName + '.png', dpi=300)
+
+            prefixPath = 'pics/bulk/' + metricName + '/barplot_conditions/'
+            make_path(prefixPath)
+
+            fig.savefig(prefixPath + 'barplot_trialtype_' + plotSuffix + '_' + intervName + '.png', dpi=300)
             plt.close()
 
         #################################
@@ -214,7 +225,11 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
             fig, ax = plt.subplots()
             sns_barplot(ax, dfData2, "mousename", metricName, 'phase', annotHue=False, xOrd=mice, hOrd=intervNames)
             # sns.barplot(ax=ax, x="mousename", y=metricName, hue='phase', data=dfData2)
-            fig.savefig(metricName + '_barplot_phase_' + plotSuffix + '_' + trialType + '.png', dpi=300)
+
+            prefixPath = 'pics/bulk/' + metricName + '/barplot_conditions/'
+            make_path(prefixPath)
+
+            fig.savefig(prefixPath + 'barplot_phase_' + plotSuffix + '_' + trialType + '.png', dpi=300)
             plt.close()
 
 
