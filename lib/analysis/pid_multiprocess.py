@@ -8,9 +8,6 @@ from lib.common.param_sweep import DataParameterSweep
 from lib.common.datawrapper import get_data_list
 
 
-
-
-
 def pid_multiprocess_session(dataDB, mc, h5outname, argSweepDict, exclQueryLst, dim=3, nBin=4, metric='BivariatePID',
                              permuteTarget=False, dropChannels=None, timeSweep=False):
 

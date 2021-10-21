@@ -88,16 +88,21 @@ def run_tests(datagen_func, decompFunc, decompLabels, nTest=100, haveShuffle=Fal
     return rezDF
 
 
-def plot_test_summary(df, dfRand, suptitle=None, haveEff=True, logEff=False):
+def plot_test_summary(df, dfRand, suptitle=None, haveEff=True, logTrue=True, logEff=False):
     nFig = 3 if haveEff else 2
     fig, ax = plt.subplots(ncols=nFig, figsize=(4*nFig, 4), tight_layout=True)
     if suptitle is not None:
         fig.suptitle(suptitle)
 
+    # Clip data
+    df['Value'] = np.clip(df['Value'], 1.0E-6, 1)
+    dfRand['Value'] = np.clip(dfRand['Value'], 1.0E-6, 1)
+
     # Plot 1: True vs Random
     dfMerged = merge_df_from_dict({'True': df, 'Random': dfRand}, columnNames=['Kind'])
-    sns.violinplot(ax=ax[0], x="Method", y="Value", hue="Kind", data=dfMerged, scale='width')
-    ax[0].set_yscale('log')
+    sns.violinplot(ax=ax[0], x="Method", y="Value", hue="Kind", data=dfMerged, scale='width', cut=0)
+    if logTrue:
+        ax[0].set_yscale('log')
     ax[0].set_xlabel('')
     ax[0].set_ylabel('Metric Value')
 
@@ -106,7 +111,7 @@ def plot_test_summary(df, dfRand, suptitle=None, haveEff=True, logEff=False):
 
     # Plot 2: Effect Sizes
     if haveEff:
-        sns.violinplot(ax=ax[1], x="Method", y="Value", data=dfEffSize, scale='width')
+        sns.violinplot(ax=ax[1], x="Method", y="Value", data=dfEffSize, scale='width', cut=0)
         if logEff:
             ax[1].set_yscale('log')
         # ax[1].axhline(y='2', color='pink', linestyle='--')
@@ -116,8 +121,11 @@ def plot_test_summary(df, dfRand, suptitle=None, haveEff=True, logEff=False):
     # Calculate fraction significant
     sigDict = {}
     for method in unique_ordered(df['Method']):
-        dfEffMethod = dfEffSize[dfEffSize['Method'] == method]
-        sigDict[method] = [np.mean(dfEffMethod['Value'] > 2)]
+        dataTrueMethod = df[df['Method'] == method]
+        dataRandMethod = dfRand[dfRand['Method'] == method]
+
+        thr = np.quantile(dataRandMethod['Value'], 0.99)
+        sigDict[method] = [np.mean(dataTrueMethod['Value'] > thr)]
 
     # Plot 3: Fraction significant
     idx3 = 2 if haveEff else 1
@@ -152,7 +160,9 @@ def run_plot_param_effect(datagen_func, decompFunc, decompLabels, nTest=1000, al
 def run_plot_param_effect_test(datagen_func, decompFunc, decompLabels, nStep=10, nTest=1000, alphaRange=(0, 1)):
     alphaLst = np.linspace(*alphaRange, nStep)
 
-    dfRezDict = {}
+    dfTrueDict = {}
+    dfRandDict = {}
+    dfEffDict = {}
     for alpha in alphaLst:
         gen_data_eff = lambda: datagen_func(alpha)
 
@@ -160,9 +170,11 @@ def run_plot_param_effect_test(datagen_func, decompFunc, decompLabels, nStep=10,
         rezDFsh = run_tests(gen_data_eff, decompFunc, decompLabels, nTest=nTest, haveShuffle=True)
         dfEffSize = effect_size_by_method(rezDF, rezDFsh)
 
-        dfRezDict[(np.round(alpha, 2), )] = dfEffSize
+        dfTrueDict[(np.round(alpha, 2), )] = rezDF
+        dfRandDict[(np.round(alpha, 2), )] = rezDFsh
+        dfEffDict[(np.round(alpha, 2), )] = dfEffSize
 
-    dfRez = merge_df_from_dict(dfRezDict, ['alpha'])
+    dfRez = merge_df_from_dict(dfEffDict, ['alpha'])
 
     nMethods = len(decompLabels)
     fig, ax = plt.subplots(nrows=2, ncols=nMethods, figsize=(4*nMethods, 8), tight_layout=True)
@@ -175,12 +187,16 @@ def run_plot_param_effect_test(datagen_func, decompFunc, decompLabels, nStep=10,
         ax[0, iMethod].set_title(methodName)
 
         # Compute plot thresholded effect sizes
-        valDict = {}
-        for alpha, dfSig in dfRezDict.items():
-            dfSigMethod = dfSig[dfSig['Method'] == methodName]
-            valDict[alpha[0]] = [np.mean(dfSigMethod['Value'] > 2)]
+        sigDict = {}
+        for alpha, dfTrue in dfTrueDict.items():
+            dfRand = dfRandDict[alpha]
+            dfTrueMethod = dfTrue[dfTrue['Method'] == methodName]
+            dfRandMethod = dfRand[dfRand['Method'] == methodName]
 
-        valDF = pd.DataFrame(valDict)
+            thr = np.quantile(dfRandMethod['Value'], 0.99)
+            sigDict[alpha[0]] = [np.mean(dfTrueMethod['Value'] > thr)]
+
+        valDF = pd.DataFrame(sigDict)
         sns.barplot(ax=ax[1, iMethod], data=valDF)
         ax[1, iMethod].set_xticklabels(ax[1, iMethod].get_xticklabels(), rotation=90)
         ax[1, iMethod].set_ylim(0, 1.05)
@@ -193,7 +209,9 @@ def run_plot_param_effect_test(datagen_func, decompFunc, decompLabels, nStep=10,
 def run_plot_data_effect_test(datagen_func, decompFunc, decompLabels, nStep=10, nTest=1000):
     nSampleLst = (10 ** np.linspace(2, 5, nStep)).astype(int)
 
-    dfRezDict = {}
+    dfTrueDict = {}
+    dfRandDict = {}
+    dfEffDict = {}
     for nSample in nSampleLst:
         gen_data_eff = lambda: datagen_func(nSample)
 
@@ -201,9 +219,12 @@ def run_plot_data_effect_test(datagen_func, decompFunc, decompLabels, nStep=10, 
         rezDFsh = run_tests(gen_data_eff, decompFunc, decompLabels, nTest=nTest, haveShuffle=True)
         dfEffSize = effect_size_by_method(rezDF, rezDFsh)
 
-        dfRezDict[(nSample, )] = dfEffSize
+        dfTrueDict[(nSample, )] = rezDF
+        dfRandDict[(nSample, )] = rezDFsh
+        dfEffDict[(nSample, )] = dfEffSize
 
-    dfRez = merge_df_from_dict(dfRezDict, ['nSample'])
+
+    dfRez = merge_df_from_dict(dfEffDict, ['nSample'])
 
     nMethods = len(decompLabels)
     fig, ax = plt.subplots(nrows=2, ncols=nMethods, figsize=(4*nMethods, 8), tight_layout=True)
@@ -217,12 +238,16 @@ def run_plot_data_effect_test(datagen_func, decompFunc, decompLabels, nStep=10, 
         ax[0, iMethod].set_xlabel('')
 
         # Compute plot thresholded effect sizes
-        valDict = {}
-        for nSampleTuple, dfSample in dfRezDict.items():
-            dfSigMethod = dfSample[dfSample['Method'] == methodName]
-            valDict[nSampleTuple[0]] = [np.mean(dfSigMethod['Value'] > 2)]
+        sigDict = {}
+        for nSampleTuple, dfTrue in dfTrueDict.items():
+            dfRand = dfRandDict[nSampleTuple]
+            dfTrueMethod = dfTrue[dfTrue['Method'] == methodName]
+            dfRandMethod = dfRand[dfRand['Method'] == methodName]
 
-        valDF = pd.DataFrame(valDict)
+            thr = np.quantile(dfRandMethod['Value'], 0.99)
+            sigDict[nSampleTuple[0]] = [np.mean(dfTrueMethod['Value'] > thr)]
+
+        valDF = pd.DataFrame(sigDict)
         sns.barplot(ax=ax[1, iMethod], data=valDF)
         ax[1, iMethod].set_xticklabels(ax[1, iMethod].get_xticklabels(), rotation=90)
         ax[1, iMethod].set_ylim(0, 1.05)

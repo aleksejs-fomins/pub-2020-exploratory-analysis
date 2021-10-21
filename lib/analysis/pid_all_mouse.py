@@ -5,9 +5,11 @@ import seaborn as sns
 import matplotlib.pyplot as plt
 from scipy.stats import mannwhitneyu, fisher_exact
 from sklearn.metrics import cohen_kappa_score
+from pathlib import Path
 
 from IPython.display import display
 
+from mesostat.utils.arrays import unique_subtract
 from mesostat.utils.system import make_path
 from mesostat.utils.matrix import drop_channels, offdiag_1D, matrix_copy_triangle_symmetric
 from mesostat.stat.stat import continuous_empirical_CDF
@@ -52,6 +54,9 @@ def pid_all_parse_key(key):
 
 def pid_all_summary_df(h5fname):
     with h5py.File(h5fname, 'r') as f:
+        if 'lock' in f.keys() and len(f['lock'].keys()) > 0:
+            print("Warning: Non-zero lock", f['lock'].keys())
+
         keys = set(f.keys()) - {'lock'}
 
     # Only keep value keys, ignore labels for now
@@ -61,7 +66,8 @@ def pid_all_summary_df(h5fname):
     for key in keys:
         summaryDF = summaryDF.append(pd.DataFrame({**{'key': key}, **pid_all_parse_key(key)}, index=[0]))
 
-    return summaryDF.reset_index(drop=True)
+    sortValues = unique_subtract(list(summaryDF.columns), ['key'])
+    return summaryDF.reset_index(drop=True).sort_values(sortValues)
 
 
 def read_computed_3D(h5fname, keyVals, pidType):
