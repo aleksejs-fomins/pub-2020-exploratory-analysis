@@ -363,6 +363,7 @@ def run_plot_1D_scan(datagen_func, decompFunc, labelA, labelB, varLimits=(0, 1),
     rezBMuLst = []
     rezAStdLst = []
     rezBStdLst = []
+    pThrBLst = []
 
     alphaLst = np.linspace(*varLimits, nStep)
     for alpha in alphaLst:
@@ -379,13 +380,15 @@ def run_plot_1D_scan(datagen_func, decompFunc, labelA, labelB, varLimits=(0, 1),
         rezBMuLst += [np.mean(bTmp)]
         rezAStdLst += [np.std(aTmp)]
         rezBStdLst += [np.std(bTmp)]
+        pThrBLst += [np.quantile(bTmp, 0.99)]
 
-    print('maxSyn', np.max(rezBMuLst), np.argmax(rezBMuLst))
+    print('thr:', np.max(pThrBLst), alphaLst[np.argmax(pThrBLst)])
 
     plt.figure()
     plt.errorbar(alphaLst, rezAMuLst, rezAStdLst, label=labelA)
-    plt.errorbar(alphaLst, rezBMuLst, rezBStdLst, label=labelA)
+    plt.errorbar(alphaLst, rezBMuLst, rezBStdLst, label=labelB)
     plt.xlabel('Parameter values')
     plt.ylabel('Function values')
     # plt.title('Synergy-Redundancy relationship for noisy redundant model')
+    plt.legend()
     plt.show()
