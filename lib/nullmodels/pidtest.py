@@ -29,12 +29,17 @@ def bin_data_1D(data, nBins):
     return np.digitize(data, boundaries, right=False) - 1
 
 
+def pid_get_decomp_labels():
+    return ['unq_s1', 'unq_s2', 'shd_s1_s2', 'syn_s1_s2']
+
+
 def pid_bin(x, y, z, nBins=4):
     dataEff = np.array([
         bin_data_1D(x, nBins),
         bin_data_1D(y, nBins),
         bin_data_1D(z, nBins)
     ])
+
     return pid(dataEff)
 
 
@@ -45,7 +50,31 @@ def pid(dataPS):
     dataIDTxl = Data(dataPS, dim_order='ps', normalise=False)
     pid = BivariatePID()
     rez = pid.analyse_single_target(settings=settings, data=dataIDTxl, target=2, sources=[0, 1])
-    return rez.get_single_target(2)
+    rezTrg = rez.get_single_target(2)
+
+    # Getting rid of negative and very low positive PID's.
+    # Statistical tests behave unexplectedly - perhaps low values contaminated by roundoff errors?
+    return {k : np.clip(rezTrg[k], 1.0E-6, None) for k in pid_get_decomp_labels()}
+
+
+def fraction_significant(df, dfRand, pVal):
+    sigDict = {}
+    for method in unique_ordered(df['Method']):
+        dataTrueMethod = df[df['Method'] == method]
+        dataRandMethod = dfRand[dfRand['Method'] == method]
+
+
+        print(method,
+              np.min(dataTrueMethod['Value']),
+              np.max(dataTrueMethod['Value']),
+              np.min(dataRandMethod['Value']),
+              np.max(dataRandMethod['Value'])
+              )
+
+        thr = np.quantile(dataRandMethod['Value'], 1 - pVal)
+        sigDict[method] = [np.mean(dataTrueMethod['Value'] - thr > 1.0E-6)]
+
+    return sigDict
 
 
 def effect_size_by_method(df, dfRand):
@@ -94,9 +123,9 @@ def plot_test_summary(df, dfRand, suptitle=None, haveEff=True, logTrue=True, log
     if suptitle is not None:
         fig.suptitle(suptitle)
 
-    # Clip data
-    df['Value'] = np.clip(df['Value'], 1.0E-6, 1)
-    dfRand['Value'] = np.clip(dfRand['Value'], 1.0E-6, 1)
+    # # Clip data
+    # df['Value'] = np.clip(df['Value'], 1.0E-6, None)
+    # dfRand['Value'] = np.clip(dfRand['Value'], 1.0E-6, None)
 
     # Plot 1: True vs Random
     dfMerged = merge_df_from_dict({'True': df, 'Random': dfRand}, columnNames=['Kind'])
@@ -119,13 +148,7 @@ def plot_test_summary(df, dfRand, suptitle=None, haveEff=True, logTrue=True, log
         ax[1].set_ylabel('Effect Size')
 
     # Calculate fraction significant
-    sigDict = {}
-    for method in unique_ordered(df['Method']):
-        dataTrueMethod = df[df['Method'] == method]
-        dataRandMethod = dfRand[dfRand['Method'] == method]
-
-        thr = np.quantile(dataRandMethod['Value'], 0.99)
-        sigDict[method] = [np.mean(dataTrueMethod['Value'] > thr)]
+    sigDict = fraction_significant(df, dfRand, 0.01)
 
     # Plot 3: Fraction significant
     idx3 = 2 if haveEff else 1
@@ -135,30 +158,48 @@ def plot_test_summary(df, dfRand, suptitle=None, haveEff=True, logTrue=True, log
     ax[idx3].set_ylabel('Fraction Significant')
 
 
+def _stratify_range(x, eta=1):
+    return (1 - np.exp(eta*x)) / (1 - np.exp(eta))
+
+
 def run_plot_param_effect(datagen_func, decompFunc, decompLabels, nTest=1000, alphaRange=(0, 1)):
-    alphaLst = []
-    rezLst = []
+    alphaLst = np.linspace(0, 1, nTest)
+    alphaLst = _stratify_range(alphaLst, eta=2)
+    alphaLst = alphaRange[0] + (alphaRange[1] - alphaRange[0]) * alphaLst
+
+    rezTrueLst = []
+    rezRandLst = []
     for iTest in range(nTest):
-        alpha = np.random.uniform(*alphaRange)
-        x, y, z = datagen_func(alpha)
-        rez = decompFunc(x, y, z)
-        rez = [rez[k] for k in decompLabels]
+        # alpha = np.random.uniform(*alphaRange)
+        x, y, z = datagen_func(alphaLst[iTest])
+        rezTrue = decompFunc(x, y, z)
+        rezRand = decompFunc(x, y, shuffle(z))
+        rezTrue = [rezTrue[k] for k in decompLabels]
+        rezRand = [rezRand[k] for k in decompLabels]
 
-        alphaLst += [alpha]
-        rezLst += [rez]
+        # alphaLst += [alpha]
+        rezTrueLst += [rezTrue]
+        rezRandLst += [rezRand]
 
-    rezLst = np.array(rezLst)
+    rezTrueLst = np.array(rezTrueLst)
+    rezRandLst = np.array(rezRandLst)
 
     fig, ax = plt.subplots(ncols=4, figsize=(16, 4))
     for iKind, kindLabel in enumerate(decompLabels):
         ax[iKind].set_title(kindLabel)
 
-        ax[iKind].semilogy(alphaLst, rezLst[:, iKind], '.')
-        ax[iKind].set_ylim([1.0E-7, 1])
+        ax[iKind].semilogy(alphaLst, rezRandLst[:, iKind], '.', label='Rand')
+        ax[iKind].semilogy(alphaLst, rezTrueLst[:, iKind], '.', label='True')
+        ax[iKind].set_ylim([1.0E-7, 10])
+        ax[iKind].legend()
 
 
 def run_plot_param_effect_test(datagen_func, decompFunc, decompLabels, nStep=10, nTest=1000, alphaRange=(0, 1)):
-    alphaLst = np.linspace(*alphaRange, nStep)
+    # alphaLst = np.linspace(*alphaRange, nStep)
+
+    alphaLst = np.linspace(0, 1, nStep)
+    alphaLst = _stratify_range(alphaLst, eta=3)
+    alphaLst = alphaRange[0] + (alphaRange[1] - alphaRange[0]) * alphaLst
 
     dfTrueDict = {}
     dfRandDict = {}
@@ -186,15 +227,21 @@ def run_plot_param_effect_test(datagen_func, decompFunc, decompLabels, nStep=10,
         ax[0, iMethod].set_xlabel('')
         ax[0, iMethod].set_title(methodName)
 
+        # # Compute plot thresholded effect sizes
+        # sigDict = {}
+        # for alpha, dfTrue in dfTrueDict.items():
+        #     dfRand = dfRandDict[alpha]
+        #     dfTrueMethod = dfTrue[dfTrue['Method'] == methodName]
+        #     dfRandMethod = dfRand[dfRand['Method'] == methodName]
+        #
+        #     thr = np.quantile(dfRandMethod['Value'], 0.99)
+        #     sigDict[alpha[0]] = [np.mean(dfTrueMethod['Value'] > thr)]
+
         # Compute plot thresholded effect sizes
         sigDict = {}
         for alpha, dfTrue in dfTrueDict.items():
             dfRand = dfRandDict[alpha]
-            dfTrueMethod = dfTrue[dfTrue['Method'] == methodName]
-            dfRandMethod = dfRand[dfRand['Method'] == methodName]
-
-            thr = np.quantile(dfRandMethod['Value'], 0.99)
-            sigDict[alpha[0]] = [np.mean(dfTrueMethod['Value'] > thr)]
+            sigDict[alpha[0]] = fraction_significant(dfTrue, dfRand, 0.01)[methodName]
 
         valDF = pd.DataFrame(sigDict)
         sns.barplot(ax=ax[1, iMethod], data=valDF)
@@ -204,6 +251,27 @@ def run_plot_param_effect_test(datagen_func, decompFunc, decompLabels, nStep=10,
 
     ax[0, 0].set_ylabel('Effect Size')
     ax[1, 0].set_ylabel('Fraction Significant')
+
+
+def run_plot_param_effect_test_single(datagen_func, decompFunc, decompLabels, alpha, nTest=1000):
+    gen_data_eff = lambda: datagen_func(alpha)
+
+    rezDF   = run_tests(gen_data_eff, decompFunc, decompLabels, nTest=nTest)
+    rezDFsh = run_tests(gen_data_eff, decompFunc, decompLabels, nTest=nTest, haveShuffle=True)
+    dfEffSize = effect_size_by_method(rezDF, rezDFsh)
+
+    print(fraction_significant(rezDF, rezDFsh, 0.01))
+
+    fig, ax = plt.subplots(ncols=3, figsize=(12,4))
+    sns.violinplot(ax=ax[0], data=rezDF, x="Method", y="Value", scale='width', cut=0)
+    sns.violinplot(ax=ax[1], data=rezDFsh, x="Method", y="Value", scale='width', cut=0)
+    sns.violinplot(ax=ax[2], data=dfEffSize, x="Method", y="Value", scale='width', cut=0)
+    ax[0].set_yscale('log')
+    ax[1].set_yscale('log')
+    ax[2].set_yscale('log')
+    # ax[0].set_ylim([1.0E-7, 10])
+    # ax[1].set_ylim([1.0E-7, 10])
+    plt.show()
 
 
 def run_plot_data_effect_test(datagen_func, decompFunc, decompLabels, nStep=10, nTest=1000):
@@ -241,11 +309,13 @@ def run_plot_data_effect_test(datagen_func, decompFunc, decompLabels, nStep=10, 
         sigDict = {}
         for nSampleTuple, dfTrue in dfTrueDict.items():
             dfRand = dfRandDict[nSampleTuple]
-            dfTrueMethod = dfTrue[dfTrue['Method'] == methodName]
-            dfRandMethod = dfRand[dfRand['Method'] == methodName]
+            sigDict[nSampleTuple[0]] = fraction_significant(dfTrue, dfRand, 0.01)[methodName]
 
-            thr = np.quantile(dfRandMethod['Value'], 0.99)
-            sigDict[nSampleTuple[0]] = [np.mean(dfTrueMethod['Value'] > thr)]
+            # dfTrueMethod = dfTrue[dfTrue['Method'] == methodName]
+            # dfRandMethod = dfRand[dfRand['Method'] == methodName]
+            #
+            # thr = np.quantile(dfRandMethod['Value'], 0.99)
+            # sigDict[nSampleTuple[0]] = [np.mean(dfTrueMethod['Value'] > thr)]
 
         valDF = pd.DataFrame(sigDict)
         sns.barplot(ax=ax[1, iMethod], data=valDF)
@@ -258,7 +328,113 @@ def run_plot_data_effect_test(datagen_func, decompFunc, decompLabels, nStep=10, 
 
 
 ##############################
-# Synergy-Redundancy distribution search
+# Max-Synergy-Parameter Search
+##############################
+
+def _in_limits(x, varLim):
+    return np.all(x >= varLim[0]) and np.all(x <= varLim[1]) and (x[1] <= x[0])
+
+
+def run_sgd_3D(datagen_func, decompFunc, labelTrg, varLimits=(0, 1), nSample=1000, maxStep=100, sgdSig=0.2):
+    def _est(p):
+        x, y, z = datagen_func(nSample, *p)
+        rez = decompFunc(x, y, z)
+        return rez[labelTrg]
+
+    p = np.random.uniform(varLimits[0], varLimits[1], 3)
+    while not _in_limits(p, varLimits):
+        p = np.random.uniform(varLimits[0], varLimits[1], 3)
+
+    v = _est(p)
+
+    print('+', p, ':', v)
+    for i in range(maxStep):
+        pNew = p + np.random.normal(0, sgdSig, 3)
+        while not _in_limits(pNew, varLimits):
+            pNew = p + np.random.normal(0, sgdSig, 3)
+
+        vNew = _est(pNew)
+        if vNew > v:
+            print('+', pNew, ':', vNew)
+            p=pNew
+            v=vNew
+        else:
+            pass
+            # if np.random.uniform(0,1) < 0.1:
+            #     # print('-', pNew, ':', vNew)
+            #     p = pNew
+            #     # v = vNew
+
+
+def run_gridsearch_3D(datagen_func, decompFunc, labelTrg, varLimits=(0, 1), nSample=1000, nStep=10):
+    rngLst = np.linspace(*varLimits, nStep)
+
+    rezLst = []
+    for p1 in rngLst:
+        for p2 in rngLst:
+            if p2 <= p1:
+                for p3 in rngLst:
+                    x, y, z = datagen_func(nSample, p1, p2, p3)
+                    rez = decompFunc(x, y, z)[labelTrg]
+                    rezLst += [[p1, p2, p3, rez]]
+
+    rezLst = np.array(rezLst)
+    rezLst = rezLst[np.argsort(rezLst[:, -1])]  # Sort by result
+    print(rezLst[-10:])
+
+
+def run_plot_1D_scan(datagen_func, decompFunc, labelA, labelB, varLimits=(0, 1),
+                     nSample=1000, nStep=100, nTest=20, nTestResample=1000):
+    rezAMuLst = []
+    rezBMuLst = []
+    rezAStdLst = []
+    rezBStdLst = []
+
+    alphaLst = np.linspace(*varLimits, nStep)
+    for alpha in alphaLst:
+        aTmp = []
+        bTmp = []
+        for iTest in range(nTest):
+            x, y, z = datagen_func(nSample, alpha, alpha, 0)
+            rez = decompFunc(x, y, z)
+
+            aTmp += [rez[labelA]]
+            bTmp += [rez[labelB]]
+
+        rezAMuLst += [np.mean(aTmp)]
+        rezBMuLst += [np.mean(bTmp)]
+        rezAStdLst += [np.std(aTmp)]
+        rezBStdLst += [np.std(bTmp)]
+
+    # Find and report maximal synergy point
+    iAlphaMax = np.argmax(rezBMuLst)
+    alphaMax = alphaLst[iAlphaMax]
+
+    # Find distribution at maximal synergy point
+    synDistr = []
+    for iTest in range(nTestResample):
+        x, y, z = datagen_func(nSample, alphaMax, alphaMax, 0)
+        rez = decompFunc(x, y, z)
+        synDistr += [rez[labelB]]
+
+    synThrMax = np.quantile(synDistr, 0.99)
+    print('alpha', alphaMax, 'thr', synThrMax)
+
+    plt.figure()
+    plt.errorbar(alphaLst, rezAMuLst, rezAStdLst, label=labelA)
+    plt.errorbar(alphaLst, rezBMuLst, rezBStdLst, label=labelB)
+    plt.axhline(synThrMax, color='red', alpha=0.3, linestyle='--')
+    plt.axvline(alphaMax, color='red', alpha=0.3, linestyle='--')
+
+    plt.xlabel('Parameter values')
+    plt.ylabel('Function values')
+    # plt.title('Synergy-Redundancy relationship for noisy redundant model')
+    plt.legend()
+    plt.show()
+
+
+##############################
+# Synergy-Redundancy Relation
 ##############################
 
 def run_plot_scatter_explore(datagen_func, decompFunc, labelA, labelB, nVars, varLimits=(0, 1), nSample=1000, nTestDim=10):
@@ -314,81 +490,51 @@ def run_plot_scatter_exact(datagen_func, decompFunc, labelA, labelB, vars, nSamp
     # plt.title('Synergy-Redundancy relationship for noisy redundant model')
     plt.show()
 
+#
+# def run_plot_2D_scan(datagen_func, decompFunc, labelA, labelB, varLimits=(0, 1), nSample=1000, nStep=10, nTest=20):
+#     rezAMat = np.zeros((nStep, nStep))
+#     rezBMat = np.zeros((nStep, nStep))
+#
+#     alphaLst = np.linspace(*varLimits, nStep)
+#
+#     for iAlpha, alphaX in enumerate(alphaLst):
+#         for jAlpha, alphaY in enumerate(alphaLst):
+#
+#             tmpA = []
+#             tmpB = []
+#             for iTest in range(nTest):
+#                 x, y, z = datagen_func(nSample, alphaX, alphaY, 0)
+#                 rez = decompFunc(x, y, z)
+#
+#                 tmpA += [rez[labelA]]
+#                 tmpB += [rez[labelB]]
+#
+#             rezAMat[iAlpha][jAlpha] = np.mean(tmpA)
+#             rezBMat[iAlpha][jAlpha] = np.mean(tmpB)
+#
+#     # Find and report maximal synergy point
+#     iAlphaMax, jAlphaMax = np.unravel_index(np.argmax(rezBMat), rezBMat.shape)
+#     print('maxSyn', np.max(rezBMat), 'red', rezAMat[iAlphaMax][jAlphaMax], 'alpha', alphaLst[iAlphaMax], alphaLst[jAlphaMax])
+#
+#     # Find distribution at maximal synergy point
+#     rezDict = {labelA: [], labelB: []}
+#     for iTest in range(1000):
+#         x, y, z = datagen_func(nSample, alphaLst[iAlphaMax], alphaLst[jAlphaMax], 0)
+#         rez = decompFunc(x, y, z)
+#         rezDict[labelA] += [rez[labelA]]
+#         rezDict[labelB] += [rez[labelB]]
+#     dfMax = pd.DataFrame(rezDict)
+#
+#     print('1% quantile max synergy', np.quantile(rezDict[labelB], 0.99))
+#
+#     fig, ax = plt.subplots(ncols=3, figsize=(12,4), tight_layout=True)
+#     imshow(fig, ax[0], rezAMat, title=labelA, haveColorBar=True)
+#     imshow(fig, ax[1], rezBMat, title=labelB, haveColorBar=True)
+#     sns.violinplot(ax=ax[2], data=dfMax)
+#     plt.show()
 
-def run_plot_2D_scan(datagen_func, decompFunc, labelA, labelB, varLimits=(0, 1), nSample=1000, nStep=10, nTest=20):
-    rezAMat = np.zeros((nStep, nStep))
-    rezBMat = np.zeros((nStep, nStep))
-
-    alphaLst = np.linspace(*varLimits, nStep)
-
-    for iAlpha, alphaX in enumerate(alphaLst):
-        for jAlpha, alphaY in enumerate(alphaLst):
-
-            tmpA = []
-            tmpB = []
-            for iTest in range(nTest):
-                x, y, z = datagen_func(nSample, alphaX, alphaY, 0)
-                rez = decompFunc(x, y, z)
-
-                tmpA += [rez[labelA]]
-                tmpB += [rez[labelB]]
-
-            rezAMat[iAlpha][jAlpha] = np.mean(tmpA)
-            rezBMat[iAlpha][jAlpha] = np.mean(tmpB)
-
-    # Find and report maximal synergy point
-    iAlphaMax, jAlphaMax = np.unravel_index(np.argmax(rezBMat), rezBMat.shape)
-    print('maxSyn', np.max(rezBMat), 'red', rezAMat[iAlphaMax][jAlphaMax], 'alpha', alphaLst[iAlphaMax], alphaLst[jAlphaMax])
-
-    # Find distribution at maximal synergy point
-    rezDict = {labelA: [], labelB: []}
-    for iTest in range(1000):
-        x, y, z = datagen_func(nSample, alphaLst[iAlphaMax], alphaLst[jAlphaMax], 0)
-        rez = decompFunc(x, y, z)
-        rezDict[labelA] += [rez[labelA]]
-        rezDict[labelB] += [rez[labelB]]
-    dfMax = pd.DataFrame(rezDict)
-
-    print('1% quantile max synergy', np.quantile(rezDict[labelB], 0.99))
-
-    fig, ax = plt.subplots(ncols=3, figsize=(12,4), tight_layout=True)
-    imshow(fig, ax[0], rezAMat, title=labelA, haveColorBar=True)
-    imshow(fig, ax[1], rezBMat, title=labelB, haveColorBar=True)
-    sns.violinplot(ax=ax[2], data=dfMax)
-    plt.show()
 
 
-def run_plot_1D_scan(datagen_func, decompFunc, labelA, labelB, varLimits=(0, 1), nSample=1000, nStep=100, nTest=20):
-    rezAMuLst = []
-    rezBMuLst = []
-    rezAStdLst = []
-    rezBStdLst = []
-    pThrBLst = []
 
-    alphaLst = np.linspace(*varLimits, nStep)
-    for alpha in alphaLst:
-        aTmp = []
-        bTmp = []
-        for iTest in range(nTest):
-            x, y, z = datagen_func(nSample, alpha, alpha, 0)
-            rez = decompFunc(x, y, z)
 
-            aTmp += [rez[labelA]]
-            bTmp += [rez[labelB]]
 
-        rezAMuLst += [np.mean(aTmp)]
-        rezBMuLst += [np.mean(bTmp)]
-        rezAStdLst += [np.std(aTmp)]
-        rezBStdLst += [np.std(bTmp)]
-        pThrBLst += [np.quantile(bTmp, 0.99)]
-
-    print('thr:', np.max(pThrBLst), alphaLst[np.argmax(pThrBLst)])
-
-    plt.figure()
-    plt.errorbar(alphaLst, rezAMuLst, rezAStdLst, label=labelA)
-    plt.errorbar(alphaLst, rezBMuLst, rezBStdLst, label=labelB)
-    plt.xlabel('Parameter values')
-    plt.ylabel('Function values')
-    # plt.title('Synergy-Redundancy relationship for noisy redundant model')
-    plt.legend()
-    plt.show()
