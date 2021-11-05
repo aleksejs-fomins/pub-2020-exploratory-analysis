@@ -1,3 +1,4 @@
+from copy import copy
 import numpy as np
 import pandas as pd
 import seaborn as sns
@@ -7,6 +8,7 @@ import matplotlib.pyplot as plt
 
 from mesostat.utils.arrays import unique_ordered
 from mesostat.utils.pandas_helper import merge_df_from_dict
+from mesostat.stat.testing.htests import tolerance_interval
 
 # from mesostat.visualization.mpl_matrix import imshow
 
@@ -132,44 +134,84 @@ def _stratify_range(x, eta=1):
     return (1 - np.exp(eta*x)) / (1 - np.exp(eta))
 
 
-def run_plot_param_effect(datagen_func, decomp_func, decompLabels, nTest=1000, alphaRange=(0, 1)):
-    alphaLst = np.linspace(0, 1, nTest)
-    alphaLst = _stratify_range(alphaLst, eta=2)
-    alphaLst = alphaRange[0] + (alphaRange[1] - alphaRange[0]) * alphaLst
+def run_plot_param_effect(datagen_func, decomp_func, decompLabels,
+                          nStep=100, nSkipTest=10, nTest=10000, pVal=0.01, alphaRange=(0, 1),
+                          thrMetricDict=None):
+    alphaLst = np.linspace(*alphaRange, nStep)
+    # alphaLst = _stratify_range(alphaLst, eta=2)
+    # alphaLst = alphaRange[0] + (alphaRange[1] - alphaRange[0]) * alphaLst
+    alphaTestLst = []
 
     rezTrueLst = []
     rezRandLst = []
-    for iTest in range(nTest):
+    fracSignShuffleLst = []
+    fracSignAdjustedLst = []
+    for iStep in range(nStep):
         # alpha = np.random.uniform(*alphaRange)
-        x, y, z = datagen_func(alphaLst[iTest])
+        x, y, z = datagen_func(alphaLst[iStep])
         rezTrue = decomp_func(x, y, z)
-        rezRand = decomp_func(x, y, shuffle(z))
         rezTrue = [rezTrue[k] for k in decompLabels]
-        rezRand = [rezRand[k] for k in decompLabels]
+        rezTrueLst += [copy(rezTrue)]
 
-        # alphaLst += [alpha]
-        rezTrueLst += [rezTrue]
-        rezRandLst += [rezRand]
+        if iStep % nSkipTest == 0:
+            rezRandTmpLst = []
+            rezTrueTmpLst = []
+            for iTest in range(nTest):
+                x, y, z = datagen_func(alphaLst[iStep])
+                rezTrue = decomp_func(x, y, z)
+                rezRand = decomp_func(x, y, shuffle(z))
+                rezTrueTmpLst += [[rezTrue[k] for k in decompLabels]]
+                rezRandTmpLst += [[rezRand[l] for l in decompLabels]]
+
+            rezRandTmpLst = np.quantile(rezRandTmpLst, 1 - pVal, axis=0)
+            rezTrueTmpLst = np.array(rezTrueTmpLst)
+
+            alphaTestLst += [alphaLst[iStep]]
+            rezRandLst += [rezRandTmpLst]
+
+            fracSignShuffleLst += [[np.mean(rezTrueTmpLst[:, i] > rezRandTmpLst[i]) for i in range(len(decompLabels))]]
+
+            if thrMetricDict is not None:
+                tmpLst = []
+                for iKind, kindName in enumerate(decompLabels):
+                    if thrMetricDict[kindName] is None:
+                        tmpLst += [None]
+                    else:
+                        tmpLst += [np.mean(rezTrueTmpLst[:, iKind] > thrMetricDict[kindName])]
+                fracSignAdjustedLst += [tmpLst]
+
 
     rezTrueLst = np.array(rezTrueLst)
     rezRandLst = np.array(rezRandLst)
+    fracSignShuffleLst = np.array(fracSignShuffleLst)
+    fracSignAdjustedLst = np.array(fracSignAdjustedLst)
 
     nMethods = len(decompLabels)
-    fig, ax = plt.subplots(ncols=nMethods, figsize=(4*nMethods, 4), tight_layout=True)
+    fig, ax = plt.subplots(nrows=2, ncols=nMethods, figsize=(4*nMethods, 8), tight_layout=True)
     for iKind, kindLabel in enumerate(decompLabels):
-        ax[iKind].set_title(kindLabel)
+        ax[0, iKind].set_title(kindLabel)
+        ax[0, iKind].semilogy(alphaLst, rezTrueLst[:, iKind], '.', label='Data', color='black')
+        ax[0, iKind].semilogy(alphaTestLst, rezRandLst[:, iKind], label='thrShuffle', color='red')
+        if (thrMetricDict is not None) and (thrMetricDict[kindLabel] is not None):
+            ax[0, iKind].axhline(thrMetricDict[kindLabel], label='thrAdjusted', color='purple')
+        ax[0, iKind].set_ylim([1.0E-7, 10])
+        ax[0, iKind].legend()
 
-        ax[iKind].semilogy(alphaLst, rezRandLst[:, iKind], '.', label='Rand')
-        ax[iKind].semilogy(alphaLst, rezTrueLst[:, iKind], '.', label='True')
-        ax[iKind].set_ylim([1.0E-7, 10])
-        ax[iKind].legend()
+        ax[1, iKind].plot(alphaTestLst, fracSignShuffleLst[:, iKind], label='shuffle-test', color='red')
+        if (thrMetricDict is not None) and (thrMetricDict[kindLabel] is not None):
+            ax[1, iKind].plot(alphaTestLst, fracSignAdjustedLst[:, iKind], label='adjusted-test', color='purple')
+        ax[1, iKind].set_ylim([-0.1, 1.1])
+        ax[1, iKind].legend()
+
+    ax[0, 0].set_ylabel('Metric Value')
+    ax[1, 0].set_ylabel('Fraction Significant')
 
 
 def run_plot_param_effect_test(datagen_func, decomp_func, decompLabels,
                                nStep=10, nTest=1000, alphaRange=(0, 1), valThrDict=None):
     # alphaLst = np.linspace(*alphaRange, nStep)
     alphaLst = np.linspace(0, 1, nStep)
-    alphaLst = _stratify_range(alphaLst, eta=3)
+    alphaLst = _stratify_range(alphaLst, eta=5)
     alphaLst = alphaRange[0] + (alphaRange[1] - alphaRange[0]) * alphaLst
 
     dfTrueDict = {}
@@ -190,10 +232,12 @@ def run_plot_param_effect_test(datagen_func, decomp_func, decompLabels,
 
     nMethods = len(decompLabels)
     fig, ax = plt.subplots(nrows=2, ncols=nMethods, figsize=(4*nMethods, 8), tight_layout=True)
+
     for iMethod, methodName in enumerate(decompLabels):
         # Compute plot effect sizes
         dfRezMethod = dfRez[dfRez['Method'] == methodName]
-        sns.violinplot(ax=ax[0, iMethod], x="alpha", y="Value", data=dfRezMethod, scale='width')
+
+        sns.violinplot(ax=ax[0, iMethod], x="alpha", y="Value", data=dfRezMethod, scale='width', color='lightgray', label=methodName)
         ax[0, iMethod].set_xticklabels(ax[0, iMethod].get_xticklabels(), rotation = 90)
         ax[0, iMethod].set_xlabel('')
         ax[0, iMethod].set_title(methodName)
@@ -215,7 +259,7 @@ def run_plot_param_effect_test(datagen_func, decomp_func, decompLabels,
             sigDict[alpha[0]] = fraction_significant(dfTrue, dfRand, 0.01, valThrDict=valThrDict)[methodName]
 
         valDF = pd.DataFrame(sigDict)
-        sns.barplot(ax=ax[1, iMethod], data=valDF)
+        sns.barplot(ax=ax[1, iMethod], data=valDF, color='lightgray')
         ax[1, iMethod].set_xticklabels(ax[1, iMethod].get_xticklabels(), rotation=90)
         ax[1, iMethod].set_ylim(0, 1.05)
         ax[0, iMethod].set_xlabel('$\sigma$')
@@ -245,6 +289,90 @@ def run_plot_param_effect_test_single(datagen_func, decomp_func, decompLabels, a
     plt.show()
 
 
+def run_plot_data_effect(datagen_func, decomp_func, decompLabels,
+                          nStep=100, nSkipTest=10, nTest=200, pVal=0.01,
+                          thrMetricDict=None):
+    # iSkipStep = 0
+    nSampleLst = (10 ** np.linspace(2, 4, nStep)).astype(int)
+    nSampleTestLst = []
+
+    rezTrueLst = []
+    rezRandLst = []
+    fracSignShuffleLst = []
+    fracSignAdjustedLst = []
+    for iStep, nSample in enumerate(nSampleLst):
+        # alpha = np.random.uniform(*alphaRange)
+        x, y, z = datagen_func(nSample)
+        rezTrue = decomp_func(x, y, z)
+        rezTrue = [rezTrue[k] for k in decompLabels]
+        rezTrueLst += [copy(rezTrue)]
+
+        if iStep % nSkipTest == 0:
+            rezRandTmpLst = []
+            rezTrueTmpLst = []
+            for iTest in range(nTest):
+                x, y, z = datagen_func(nSample)
+                rezTrue = decomp_func(x, y, z)
+                rezRand = decomp_func(x, y, shuffle(z))
+                rezTrueTmpLst += [[rezTrue[k] for k in decompLabels]]
+                rezRandTmpLst += [[rezRand[l] for l in decompLabels]]
+
+            rezRandTmpLst = np.quantile(rezRandTmpLst, 1 - pVal, axis=0)
+            rezTrueTmpLst = np.array(rezTrueTmpLst)
+
+            nSampleTestLst += [nSample]
+            rezRandLst += [rezRandTmpLst]
+
+            fracSignShuffleLst += [[np.mean(rezTrueTmpLst[:, i] > rezRandTmpLst[i]) for i in range(len(decompLabels))]]
+
+            if thrMetricDict is not None:
+                tmpLst = []
+                for iKind, kindName in enumerate(decompLabels):
+                    if thrMetricDict[kindName] is None:
+                        tmpLst += [None]
+                    else:
+                        tmpLst += [np.mean(rezTrueTmpLst[:, iKind] > thrMetricDict[kindName])]
+                fracSignAdjustedLst += [tmpLst]
+
+            # if thrMetricDict is not None:
+            #     tmpLst = []
+            #     for iKind, kindName in enumerate(decompLabels):
+            #         if thrMetricDict[kindName] is None:
+            #             tmpLst += [None]
+            #         else:
+            #             tmpLst += [np.mean(rezTrueTmpLst[:, iKind] > thrMetricDict[kindName][iSkipStep])]
+            #     fracSignAdjustedLst += [tmpLst]
+            #
+            # iSkipStep += 1
+
+
+    rezTrueLst = np.array(rezTrueLst)
+    rezRandLst = np.array(rezRandLst)
+    fracSignShuffleLst = np.array(fracSignShuffleLst)
+    fracSignAdjustedLst = np.array(fracSignAdjustedLst)
+
+    nMethods = len(decompLabels)
+    fig, ax = plt.subplots(nrows=2, ncols=nMethods, figsize=(4*nMethods, 8), tight_layout=True)
+    for iKind, kindLabel in enumerate(decompLabels):
+        ax[0, iKind].set_title(kindLabel)
+        ax[0, iKind].loglog(nSampleLst, rezTrueLst[:, iKind], '.', label='Data', color='black')
+        ax[0, iKind].loglog(nSampleTestLst, rezRandLst[:, iKind], label='thrShuffle', color='red')
+        if (thrMetricDict is not None) and (thrMetricDict[kindLabel] is not None):
+            ax[0, iKind].axhline(y = thrMetricDict[kindLabel], label='thrAdjusted', color='purple')
+            # ax[0, iKind].loglog(list(thrMetricDict[kindLabel].keys()), list(thrMetricDict[kindLabel].values()), label='thrAdjusted', color='purple')
+        ax[0, iKind].set_ylim([1.0E-7, 10])
+        ax[0, iKind].legend()
+
+        ax[1, iKind].semilogx(nSampleTestLst, fracSignShuffleLst[:, iKind], label='shuffle-test', color='red')
+        if (thrMetricDict is not None) and (thrMetricDict[kindLabel] is not None):
+            ax[1, iKind].semilogx(nSampleTestLst, fracSignAdjustedLst[:, iKind], label='adjusted-test', color='purple')
+        ax[1, iKind].set_ylim([-0.1, 1.1])
+        ax[1, iKind].legend()
+
+    ax[0, 0].set_ylabel('Metric Value')
+    ax[1, 0].set_ylabel('Fraction Significant')
+
+
 def run_plot_data_effect_test(datagen_func, decomp_func, decompLabels, nStep=10, nTest=1000, valThrDict=None):
     nSampleLst = (10 ** np.linspace(2, 5, nStep)).astype(int)
 
@@ -272,7 +400,7 @@ def run_plot_data_effect_test(datagen_func, decomp_func, decompLabels, nStep=10,
 
         # Compute plot effect sizes
         dfRezMethod = dfRez[dfRez['Method'] == methodName]
-        sns.violinplot(ax=ax[0, iMethod], x="nSample", y="Value", data=dfRezMethod, scale='width')
+        sns.violinplot(ax=ax[0, iMethod], x="nSample", y="Value", data=dfRezMethod, scale='width', color='lightgray')
         ax[0, iMethod].set_xticklabels(ax[0, iMethod].get_xticklabels(), rotation = 90)
         ax[0, iMethod].set_xlabel('')
 
@@ -289,7 +417,7 @@ def run_plot_data_effect_test(datagen_func, decomp_func, decompLabels, nStep=10,
             # sigDict[nSampleTuple[0]] = [np.mean(dfTrueMethod['Value'] > thr)]
 
         valDF = pd.DataFrame(sigDict)
-        sns.barplot(ax=ax[1, iMethod], data=valDF)
+        sns.barplot(ax=ax[1, iMethod], data=valDF, color='lightgray')
         ax[1, iMethod].set_xticklabels(ax[1, iMethod].get_xticklabels(), rotation=90)
         ax[1, iMethod].set_ylim(0, 1.05)
         ax[0, iMethod].set_xlabel('$\sigma$')
@@ -355,7 +483,7 @@ def run_gridsearch_3D(datagen_func, decomp_func, labelTrg, varLimits=(0, 1), nSa
 
 
 def run_plot_1D_scan(datagen_func, decomp_func, labelA, labelB, varLimits=(0, 1),
-                     nSample=1000, nStep=100, nTest=20, nTestResample=1000):
+                     nSample=1000, nStep=100, nTest=20, nTestResample=1000, colorA=None, colorB=None):
     rezAMuLst = []
     rezBMuLst = []
     rezAStdLst = []
@@ -392,8 +520,8 @@ def run_plot_1D_scan(datagen_func, decomp_func, labelA, labelB, varLimits=(0, 1)
     print('alpha', alphaMax, 'thr', synThrMax)
 
     plt.figure()
-    plt.errorbar(alphaLst, rezAMuLst, rezAStdLst, label=labelA)
-    plt.errorbar(alphaLst, rezBMuLst, rezBStdLst, label=labelB)
+    plt.errorbar(alphaLst, rezAMuLst, rezAStdLst, label=labelA, color=colorA)
+    plt.errorbar(alphaLst, rezBMuLst, rezBStdLst, label=labelB, color=colorB)
     plt.axhline(synThrMax, color='red', alpha=0.3, linestyle='--')
     plt.axvline(alphaMax, color='red', alpha=0.3, linestyle='--')
 
