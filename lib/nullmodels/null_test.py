@@ -8,7 +8,10 @@ import matplotlib.pyplot as plt
 
 from mesostat.utils.arrays import unique_ordered
 from mesostat.utils.pandas_helper import merge_df_from_dict
-from mesostat.stat.testing.htests import tolerance_interval
+# from mesostat.stat.testing.htests import tolerance_interval
+from mesostat.visualization.mpl_axis_scale import nonlinear_xaxis
+from mesostat.visualization.mpl_1D import prettify_plot_1D
+
 
 # from mesostat.visualization.mpl_matrix import imshow
 
@@ -135,8 +138,8 @@ def _stratify_range(x, eta=1):
 
 
 def run_plot_param_effect(datagen_func, decomp_func, decompLabels,
-                          nStep=100, nSkipTest=10, nTest=10000, pVal=0.01, alphaRange=(0, 1),
-                          thrMetricDict=None):
+                          nStep=100, nSkipTest=10, nTest=10000, pVal=0.01, alphaRange=(0, 1), valThr=1.0E-7,
+                          thrMetricDict=None, plotAlphaSq=False, fontsize=20):
     alphaLst = np.linspace(*alphaRange, nStep)
     # alphaLst = _stratify_range(alphaLst, eta=2)
     # alphaLst = alphaRange[0] + (alphaRange[1] - alphaRange[0]) * alphaLst
@@ -153,7 +156,7 @@ def run_plot_param_effect(datagen_func, decomp_func, decompLabels,
         rezTrue = [rezTrue[k] for k in decompLabels]
         rezTrueLst += [copy(rezTrue)]
 
-        if iStep % nSkipTest == 0:
+        if (iStep < 7) or (iStep % nSkipTest) == 0:
             rezRandTmpLst = []
             rezTrueTmpLst = []
             for iTest in range(nTest):
@@ -180,35 +183,50 @@ def run_plot_param_effect(datagen_func, decomp_func, decompLabels,
                         tmpLst += [np.mean(rezTrueTmpLst[:, iKind] > thrMetricDict[kindName])]
                 fracSignAdjustedLst += [tmpLst]
 
-
-    rezTrueLst = np.array(rezTrueLst)
-    rezRandLst = np.array(rezRandLst)
+    rezTrueLst = np.clip(np.array(rezTrueLst), valThr, None)
+    rezRandLst = np.clip(np.array(rezRandLst), valThr, None)
     fracSignShuffleLst = np.array(fracSignShuffleLst)
     fracSignAdjustedLst = np.array(fracSignAdjustedLst)
+
+    alphaLstPlot     = alphaLst     if not plotAlphaSq else alphaLst ** 2
+    alphaTestLstPlot = alphaTestLst if not plotAlphaSq else np.array(alphaTestLst) ** 2
 
     nMethods = len(decompLabels)
     fig, ax = plt.subplots(nrows=2, ncols=nMethods, figsize=(4*nMethods, 8), tight_layout=True)
     for iKind, kindLabel in enumerate(decompLabels):
+        # Metric Values
         ax[0, iKind].set_title(kindLabel)
-        ax[0, iKind].semilogy(alphaLst, rezTrueLst[:, iKind], '.', label='Data', color='black')
-        ax[0, iKind].semilogy(alphaTestLst, rezRandLst[:, iKind], label='thrShuffle', color='red')
+        ax[0, iKind].semilogy(alphaLstPlot, rezTrueLst[:, iKind], '.', label='Data', color='black')
+        ax[0, iKind].semilogy(alphaTestLstPlot, rezRandLst[:, iKind], label='thrShuffle', color='red')
         if (thrMetricDict is not None) and (thrMetricDict[kindLabel] is not None):
             ax[0, iKind].axhline(thrMetricDict[kindLabel], label='thrAdjusted', color='purple')
-        ax[0, iKind].set_ylim([1.0E-7, 10])
+        ax[0, iKind].set_ylim([valThr / 2, 10])
         ax[0, iKind].legend()
 
-        ax[1, iKind].plot(alphaTestLst, fracSignShuffleLst[:, iKind], label='shuffle-test', color='red')
+        # Fraction of significant items
+        ax[1, iKind].plot(alphaTestLstPlot, fracSignShuffleLst[:, iKind], label='shuffle-test', color='red')
         if (thrMetricDict is not None) and (thrMetricDict[kindLabel] is not None):
-            ax[1, iKind].plot(alphaTestLst, fracSignAdjustedLst[:, iKind], label='adjusted-test', color='purple')
+            ax[1, iKind].plot(alphaTestLstPlot, fracSignAdjustedLst[:, iKind], label='adjusted-test', color='purple')
         ax[1, iKind].set_ylim([-0.1, 1.1])
         ax[1, iKind].legend()
+
+        # Set nonlinearity to axes
+        nonlinear_xaxis(ax[0, iKind], scale=0.001)
+        nonlinear_xaxis(ax[1, iKind], scale=0.001)
+
+        xTicksNew = [0, 0.001, 0.01, 0.1, 0.5, 1]
+        prettify_plot_1D(ax[0, iKind], haveTopRightBox=False, margins=0.05, xTicks=xTicksNew, xRotation=90,
+                         xFontSize=fontsize, yFontSize=fontsize)
+        prettify_plot_1D(ax[1, iKind], haveTopRightBox=False, margins=0.05, xTicks=xTicksNew, xRotation=90,
+                         xFontSize=fontsize, yFontSize=fontsize)
+
 
     ax[0, 0].set_ylabel('Metric Value')
     ax[1, 0].set_ylabel('Fraction Significant')
 
 
 def run_plot_param_effect_test(datagen_func, decomp_func, decompLabels,
-                               nStep=10, nTest=1000, alphaRange=(0, 1), valThrDict=None):
+                               nStep=10, nTest=1000, alphaRange=(0, 1), valThrDict=None, fontsize=10):
     # alphaLst = np.linspace(*alphaRange, nStep)
     alphaLst = np.linspace(0, 1, nStep)
     alphaLst = _stratify_range(alphaLst, eta=5)
@@ -291,7 +309,7 @@ def run_plot_param_effect_test_single(datagen_func, decomp_func, decompLabels, a
 
 def run_plot_data_effect(datagen_func, decomp_func, decompLabels,
                           nStep=100, nSkipTest=10, nTest=200, pVal=0.01,
-                          thrMetricDict=None):
+                          thrMetricDict=None, fontsize=10):
     # iSkipStep = 0
     nSampleLst = (10 ** np.linspace(2, 4, nStep)).astype(int)
     nSampleTestLst = []
@@ -368,6 +386,9 @@ def run_plot_data_effect(datagen_func, decomp_func, decompLabels,
             ax[1, iKind].semilogx(nSampleTestLst, fracSignAdjustedLst[:, iKind], label='adjusted-test', color='purple')
         ax[1, iKind].set_ylim([-0.1, 1.1])
         ax[1, iKind].legend()
+
+        prettify_plot_1D(ax[0, iKind], haveTopRightBox=False, margins=0.05, xFontSize=fontsize, yFontSize=fontsize)
+        prettify_plot_1D(ax[1, iKind], haveTopRightBox=False, margins=0.05, xFontSize=fontsize, yFontSize=fontsize)
 
     ax[0, 0].set_ylabel('Metric Value')
     ax[1, 0].set_ylabel('Fraction Significant')

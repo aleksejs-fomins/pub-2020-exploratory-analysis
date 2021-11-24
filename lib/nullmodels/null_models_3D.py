@@ -9,31 +9,31 @@ def bernoulli(n, p):
 # Discrete models
 #########################################
 
-def _add_discr_noise(n, x, y, z, alphaX=0.5, alphaY=0.5, alphaZ=0.5):
-    aX = bernoulli(n, alphaX)
-    aY = bernoulli(n, alphaY)
-    aZ = bernoulli(n, alphaZ)
+def _add_discr_noise(n, x, y, z, pX=0.5, pY=0.5, pZ=0.5):
+    aX = bernoulli(n, pX)
+    aY = bernoulli(n, pY)
+    aZ = bernoulli(n, pZ)
     xNew = (1 - aX) * x + aX * bernoulli(n, 0.5)
     yNew = (1 - aY) * y + aY * bernoulli(n, 0.5)
     zNew = (1 - aZ) * z + aZ * bernoulli(n, 0.5)
     return xNew, yNew, zNew
 
 
-def discr_red_noisy(nSample, alphaX=0.5, alphaY=0.5, alphaZ=0.5):
+def discr_red_noisy(nSample, pX=0.5, pY=0.5, pZ=0.5):
     t = bernoulli(nSample, 0.5)
-    return _add_discr_noise(nSample, t, t, t, alphaX=alphaX, alphaY=alphaY, alphaZ=alphaZ)
+    return _add_discr_noise(nSample, t, t, t, pX=pX, pY=pY, pZ=pZ)
 
 
-def discr_unq_noisy(nSample, alphaX=0.5, alphaY=0.5, alphaZ=0.5):
+def discr_unq_noisy(nSample, pX=0.5, pY=0.5, pZ=0.5):
     t = bernoulli(nSample, 0.5)
-    return _add_discr_noise(nSample, t, 0, t, alphaX=alphaX, alphaY=alphaY, alphaZ=alphaZ)
+    return _add_discr_noise(nSample, t, 0, t, pX=pX, pY=pY, pZ=pZ)
 
 
-def discr_syn_noisy(nSample, alphaX=0.5, alphaY=0.5, alphaZ=0.5):
+def discr_syn_noisy(nSample, pX=0.5, pY=0.5, pZ=0.5):
     x = bernoulli(nSample, 0.5)
     y = bernoulli(nSample, 0.5)
     z = np.logical_xor(x, y)
-    return _add_discr_noise(nSample, x, y, z, alphaX=alphaX, alphaY=alphaY, alphaZ=alphaZ)
+    return _add_discr_noise(nSample, x, y, z, pX=pX, pY=pY, pZ=pZ)
 
 
 def discr_method_dict():
@@ -48,27 +48,27 @@ def discr_method_dict():
 # Continuous models
 #########################################
 
-def _add_cont_noise(n, x, y, z, sigX=1, sigY=1, sigZ=1):
-    xNew = x + np.random.normal(0, sigX, n)
-    yNew = y + np.random.normal(0, sigY, n)
-    zNew = z + np.random.normal(0, sigZ, n)
+def _add_cont_noise(n, x, y, z, pX=0.5, pY=0.5, pZ=0.5):
+    xNew = (1 - pX) * x + pX * np.random.normal(0, 1, n)
+    yNew = (1 - pY) * y + pY * np.random.normal(0, 1, n)
+    zNew = (1 - pZ) * z + pZ * np.random.normal(0, 1, n)
     return xNew, yNew, zNew
 
 
-def cont_red_noisy(n=1000, sigX=1, sigY=1, sigZ=1):
+def cont_red_noisy(n=1000, pX=0.5, pY=0.5, pZ=0.5):
     t = np.random.normal(0, 1, n)
-    return _add_cont_noise(n, t, t, t, sigX=sigX, sigY=sigY, sigZ=sigZ)
+    return _add_cont_noise(n, t, t, t, pX=pX, pY=pY, pZ=pZ)
 
 
-def cont_unq_noisy(n=1000, sigX=1, sigY=1, sigZ=1):
+def cont_unq_noisy(n=1000, pX=0.5, pY=0.5, pZ=0.5):
     t = np.random.normal(0, 1, n)
-    return _add_cont_noise(n, t, 0, t, sigX=sigX, sigY=sigY, sigZ=sigZ)
+    return _add_cont_noise(n, t, 0, t, pX=pX, pY=pY, pZ=pZ)
 
 
-def cont_xor_noisy(n=1000, sigX=1, sigY=1, sigZ=1):
+def cont_xor_noisy(n=1000, pX=0.5, pY=0.5, pZ=0.5):
     x0 = np.random.normal(0, 1, n)
     y0 = np.random.normal(0, 1, n)
-    return _add_cont_noise(n, x0, y0, x0 * y0, sigX=sigX, sigY=sigY, sigZ=sigZ)
+    return _add_cont_noise(n, x0, y0, x0 * y0, pX=pX, pY=pY, pZ=pZ)
 
 
 def cont_method_dict():
