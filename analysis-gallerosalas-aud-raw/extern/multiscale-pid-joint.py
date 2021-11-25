@@ -13,7 +13,8 @@ from lib.analysis.triplet_compute.datasweep import multiprocess_mouse
 
 # tmp_path = root_path_data if 'root_path_data' in locals() else "./"
 params = {}
-params['root_path_data'] = '/home/alfomi/data/yasirdata_aud_raw'
+#params['root_path_data'] = '/home/alfomi/data/yasirdata_aud_raw'
+params['root_path_data'] = '/mnt/aleksejs/project-pub1-hierarchical/yasirdata_aud_raw/'
 # params['root_path_data'] = '/media/alyosha/Data/TE_data/yasirdata_raw'
 # params['root_path_data'] = gui_fpath('h5path', './')
 
@@ -34,7 +35,7 @@ exclQueryLst = [
     #{'mousename' : 'mou_6', 'intervName': 'REW'}     # No reward recorded for mouse 6
 ]
 
-for nBin in [2,3,4,5]:
+for nBin in [2]:
     for permuteTarget in [False, True]:
         randKey = 'rand' if permuteTarget else 'data'
         h5outname = 'pid_gallerosalas_multimouse_nbin_' + str(nBin) + '_' + randKey + '.h5'

@@ -13,9 +13,10 @@ from lib.analysis.triplet_compute.datasweep import multiprocess_mouse
 
 # tmp_path = root_path_data if 'root_path_data' in locals() else "./"
 params = {}
-params['root_path_data'] = '/home/alfomi/data/sych_preprocessed'
+# params['root_path_data'] = '/home/alfomi/data/sych_preprocessed'
 # params['root_path_data'] = '/media/alyosha/Data/TE_data/yarodata/sych_preprocessed'
 # params['root_path_data'] = gui_fpath('h5path', './')
+params['root_path_data'] = '/mnt/aleksejs/project-pub1-hierarchical/sych_preprocessed/'
 
 dataDB = DataFCDatabase(params)
 mc = MetricCalculator(serial=True, verbose=False) #, nCore=4)
@@ -35,10 +36,9 @@ exclQueryLst = [
 ]
 
 
-for nBin in [2,3,4,5]:
-    for permuteTarget in [False, True]:
-        randKey = 'rand' if permuteTarget else 'data'
-        h5outname = 'pr2_sych_multimouse_nbin_' + str(nBin) + '_' + randKey + '.h5'
+for permuteTarget in [False, True]:
+    randKey = 'rand' if permuteTarget else 'data'
+    h5outname = 'pr2_sych_multimouse_' + randKey + '.h5'
 
-        multiprocess_mouse(dataDB, mc, h5outname, argSweepDict, exclQueryLst, 'PR2',
-                           permuteTarget=permuteTarget, dropChannels=[21])
+    multiprocess_mouse(dataDB, mc, h5outname, argSweepDict, exclQueryLst, 'PR2',
+                       permuteTarget=permuteTarget, dropChannels=[21])
