@@ -19,7 +19,7 @@ params['root_path_data'] = '/mnt/aleksejs/project-pub1-hierarchical/yasirdata_au
 # params['root_path_data'] = gui_fpath('h5path', './')
 
 dataDB = DataFCDatabase(params)
-h5outname = 'pid_gallerosalas_multimouse_timesweep_df.h5'
+h5outname = 'pr2_gallerosalas_multimouse_timesweep_df.h5'
 mc = MetricCalculator(serial=True, verbose=False) #, nCore=4)
 
 # Sweep over following parameters
@@ -36,5 +36,5 @@ exclQueryLst = [
     # {'mousename' : 'mou_6', 'intervName': 'REW'}     # No reward recorded for mouse 6
 ]
 
-multiprocess_mouse_trgsweep(dataDB, mc, h5outname, argSweepDict, exclQueryLst, 'PID', metric='BivariatePID',
-                            timeSweep=True, dim=3, nBin=4, permuteTarget=False, dropChannels=[16, 26])
+multiprocess_mouse_trgsweep(dataDB, mc, h5outname, argSweepDict, exclQueryLst, 'PR2',
+                            timeSweep=True, permuteTarget=False, dropChannels=[16, 26])

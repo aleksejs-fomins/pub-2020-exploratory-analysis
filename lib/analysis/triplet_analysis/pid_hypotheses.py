@@ -1,6 +1,5 @@
 import h5py
 import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 
 from mesostat.utils.signals.resample import bin_data
@@ -8,7 +7,7 @@ from mesostat.utils.signals.filter import drop_PCA
 from mesostat.visualization.mpl_colorbar import imshow_add_color_bar
 import mesostat.utils.iterators.matrix as matiter
 
-from lib.analysis.pid_common import pid
+from lib.analysis.triplet_compute.pid_common import pid
 
 
 '''

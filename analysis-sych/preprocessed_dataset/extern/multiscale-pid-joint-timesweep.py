@@ -8,7 +8,8 @@ print("Appended root directory", rootpath)
 
 from mesostat.metric.metric import MetricCalculator
 from lib.sych.data_fc_db_raw import DataFCDatabase
-from lib.analysis.pid_multiprocess import pid_multiprocess_session
+from lib.analysis.triplet_compute.datasweep import multiprocess_mouse_trgsweep
+
 
 # tmp_path = root_path_data if 'root_path_data' in locals() else "./"
 params = {}
@@ -17,21 +18,22 @@ params['root_path_data'] = '/home/alfomi/data/sych_preprocessed'
 # params['root_path_data'] = gui_fpath('h5path', './')
 
 dataDB = DataFCDatabase(params)
-h5outname = 'sych_result_multiregional_pid_df_rand.h5'
+h5outname = 'pid_sych_multimouse_timesweep_df.h5'
 mc = MetricCalculator(serial=True, verbose=False) #, nCore=4)
 
 # Sweep over following parameters
 argSweepDict = {
     'mousename': dataDB.mice,  # ['mvg_4']
-    'intervName': dataDB.get_interval_names(),
+    # 'intervName': dataDB.get_interval_names(),
     'datatype': ['bn_trial', 'bn_session'],
-    'trialType': [None] + dataDB.get_trial_type_names()
+    'trialType': ['None', 'iGO', 'iNOGO'],
+    'performance': ['naive', 'expert']
 }
 
 # Exclude following parameter combinations
 exclQueryLst = [
-    {'datatype': 'bn_trial', 'intervName': 'PRE'}   # Pre-trial interval not meaningful for bn_trial
+    # {'datatype': 'bn_trial', 'intervName': 'PRE'}   # Pre-trial interval not meaningful for bn_trial
 ]
 
-pid_multiprocess_session(dataDB, mc, h5outname, argSweepDict, exclQueryLst,
-                         dim=3, nBin=4, permuteTarget=True, dropChannels=[21])
+multiprocess_mouse_trgsweep(dataDB, mc, h5outname, argSweepDict, exclQueryLst, 'PID', metric='BivariatePID',
+                            timeSweep=True, dim=3, nBin=4, permuteTarget=False, dropChannels=[21])

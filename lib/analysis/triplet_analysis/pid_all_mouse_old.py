@@ -4,13 +4,11 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 from collections import defaultdict
-from scipy.stats import mannwhitneyu, fisher_exact
+from scipy.stats import mannwhitneyu
 from sklearn.metrics import cohen_kappa_score
 
-from IPython.display import display
-
 from mesostat.stat.stat import continuous_empirical_CDF
-from mesostat.utils.matrix import offdiag_1D, tril_1D
+from mesostat.utils.matrix import offdiag_1D
 from mesostat.stat.classification import confusion_matrix
 from mesostat.stat.clustering import cluster_dist_matrix_min, cluster_plot
 
@@ -18,8 +16,7 @@ from mesostat.utils.pandas_helper import pd_query, pd_merge_multiple, pd_is_one_
 from mesostat.visualization.mpl_barplot import barplot_stacked_indexed, barplot_labeled
 from mesostat.visualization.mpl_matrix import imshow
 
-from lib.analysis.pid_common import pid
-from lib.analysis.pid_all_session_old import preprocess_unique, preprocess_drop_negative, preprocess_drop_channels
+from lib.analysis.triplet_analysis.pid_all_session_old import preprocess_unique, preprocess_drop_negative, preprocess_drop_channels
 
 
 def pid_all_parse_key(key):

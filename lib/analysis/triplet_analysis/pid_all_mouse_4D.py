@@ -1,4 +1,3 @@
-import os
 import h5py
 import numpy as np
 import seaborn as sns
@@ -23,10 +22,6 @@ from mesostat.metric.idtxl_pid import multivariate_pid_key
 # from mesostat.utils.pandas_helper import pd_query, pd_merge_multiple, pd_is_one_row, pd_append_row, pd_pivot
 # from mesostat.visualization.mpl_barplot import barplot_stacked_indexed, barplot_labeled, sns_barplot
 # from mesostat.visualization.mpl_matrix import imshow
-
-
-
-from lib.analysis.pid_all_mouse import pid_all_summary_df
 
 
 def read_rez(h5fname, keyPID):

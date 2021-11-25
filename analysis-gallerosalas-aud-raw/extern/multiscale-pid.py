@@ -8,7 +8,8 @@ print("Appended root directory", rootpath)
 
 from mesostat.metric.metric import MetricCalculator
 from lib.gallerosalas.data_fc_db_aud_raw import DataFCDatabase
-from lib.analysis.pid_multiprocess import pid_multiprocess_session
+from lib.analysis.triplet_compute.datasweep import multiprocess_session
+
 
 # tmp_path = root_path_data if 'root_path_data' in locals() else "./"
 params = {}
@@ -17,7 +18,6 @@ params['root_path_data'] = '/home/alfomi/data/yasirdata_aud_raw'
 # params['root_path_data'] = gui_fpath('h5path', './')
 
 dataDB = DataFCDatabase(params)
-h5outname = 'gallerosalas_result_multiregional_pid_df.h5'
 mc = MetricCalculator(serial=True, verbose=False) #, nCore=4)
 
 # Sweep over following parameters
@@ -34,5 +34,11 @@ exclQueryLst = [
     #{'mousename' : 'mou_6', 'intervName': 'REW'}     # No reward recorded for mouse 6
 ]
 
-pid_multiprocess_session(dataDB, mc, h5outname, argSweepDict, exclQueryLst,
-                         dim=3, nBin=4, permuteTarget=False, dropChannels=[16, 26])
+
+for nBin in [2,3,4,5]:
+    for permuteTarget in [False, True]:
+        randKey = 'rand' if permuteTarget else 'data'
+        h5outname = 'pid_gallerosalas_multisession_nbin_' + str(nBin) + '_' + randKey + '.h5'
+
+        multiprocess_session(dataDB, mc, h5outname, argSweepDict, exclQueryLst, 'PID', metric='BivariatePID',
+                             dim=3, nBin=nBin, permuteTarget=permuteTarget, dropChannels=[16, 26])
