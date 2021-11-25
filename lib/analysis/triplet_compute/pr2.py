@@ -29,7 +29,7 @@ def pr2_multi(dataLst, mc,
         dimOrdSrc = 'rsp'
         dimOrdTrg = 's'
     else:
-        dataBin = preprocess_data(dataLst, nDropPCA=nDropPCA, nBin=None, timeAvg=False)
+        dataBin = preprocess_data(dataLst, nDropPCA=nDropPCA, nBin=None, timeAvg=True)
 
         if verbose:
             print("Single-point analysis with shape:", dataBin.shape)
