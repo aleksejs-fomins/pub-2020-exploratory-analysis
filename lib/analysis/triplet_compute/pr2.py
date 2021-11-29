@@ -38,7 +38,7 @@ def pr2_multi(dataLst, mc,
         dimOrdTrg = ''
 
     if verbose:
-        print("Computing PID...")
+        print("Computing PR2...")
 
     havePIDAll = (labelsSrc is None) and (labelsTrg is None) and (labelsAll is None)
     havePIDSpecific = (labelsSrc is not None) and (labelsTrg is not None) and (labelsAll is not None) and (dropChannels is None)

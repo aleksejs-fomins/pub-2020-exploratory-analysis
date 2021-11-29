@@ -36,7 +36,7 @@ class DataFCDatabase:
         ##################################
         # Define resampling frequency
         ##################################
-        self.targetFreq = 20  # Hz
+        self.targetFPS = 20  # Hz
 
         ##################################
         # Find and parse data files
@@ -182,9 +182,9 @@ class DataFCDatabase:
     # If window greater than 1 is provided, return timesteps of data sweeped with a moving window of that length
     def get_times(self, nTime=160, window=1):
         if window == 1:
-            return np.arange(nTime) / self.targetFreq
+            return np.arange(nTime) / self.targetFPS
         else:
-            return (np.arange(nTime - window + 1) + (window - 1) / 2) / self.targetFreq
+            return (np.arange(nTime - window + 1) + (window - 1) / 2) / self.targetFPS
 
     def get_absolute_times(self, mousename, session, FPS=20, onlySelected=True):
         with h5py.File(self.datapaths[mousename]) as f:

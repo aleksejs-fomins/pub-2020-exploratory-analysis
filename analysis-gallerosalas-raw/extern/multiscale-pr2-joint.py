@@ -36,10 +36,9 @@ exclQueryLst = [
     {'mousename' : 'mou_6', 'intervName': 'REW'}     # No reward recorded for mouse 6
 ]
 
-for nBin in [2]:
-    for permuteTarget in [False, True]:
-        randKey = 'rand' if permuteTarget else 'data'
-        h5outname = 'pr2_gallerosalas_multimouse_nbin_' + str(nBin) + '_' + randKey + '.h5'
+for permuteTarget in [False, True]:
+    randKey = 'rand' if permuteTarget else 'data'
+    h5outname = 'pr2_gallerosalas_multimouse_' + randKey + '.h5'
 
-        multiprocess_mouse(dataDB, mc, h5outname, argSweepDict, exclQueryLst, 'PR2',
-                           permuteTarget=permuteTarget, dropChannels=[16, 26])
+    multiprocess_mouse(dataDB, mc, h5outname, argSweepDict, exclQueryLst, 'PR2',
+                       permuteTarget=permuteTarget, dropChannels=[16, 26])
