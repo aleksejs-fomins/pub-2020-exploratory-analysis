@@ -554,6 +554,35 @@ def run_plot_1D_scan(datagen_func, decomp_func, labelA, labelB, varLimits=(0, 1)
     return alphaMax, synThrMax
 
 
+def run_1D_scan_bare(datagen_func_1D, decomp_func, atomLabel, varLimits=(0, 1),
+                     nSample=1000, nStep=100, nTest=20, nTestResample=1000):
+    rezMuLst = []
+
+    alphaLst = np.linspace(*varLimits, nStep)
+    for alpha in alphaLst:
+        rezTmpLst = []
+        for iTest in range(nTest):
+            x, y, z = datagen_func_1D(nSample, alpha)
+            rez = decomp_func(x, y, z)
+
+            rezTmpLst += [rez[atomLabel]]
+
+        rezMuLst += [np.mean(rezTmpLst)]
+
+    # Find and report maximal synergy point
+    iAlphaMax = np.argmax(rezMuLst)
+    alphaMax = alphaLst[iAlphaMax]
+
+    # Find distribution at maximal synergy point
+    atomDistr = []
+    for iTest in range(nTestResample):
+        x, y, z = datagen_func_1D(nSample, alphaMax)
+        rez = decomp_func(x, y, z)
+        atomDistr += [rez[atomLabel]]
+
+    return alphaMax, atomDistr
+
+
 ##############################
 # Synergy-Redundancy Relation
 ##############################
