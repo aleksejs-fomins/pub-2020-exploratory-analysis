@@ -72,6 +72,18 @@ def effect_size_by_method(df, dfRand):
 # Functions
 ##############################
 
+
+def sample_decomp(datagen_func_noparam, decomp_func, trgLabel, nData=10000, nSample=10000, haveShuffle=False):
+    rezLst = []
+    for i in range(nSample):
+        x, y, z = datagen_func_noparam(nData)
+        if haveShuffle:
+            z = shuffle(z)
+        rez = decomp_func(x, y, z)
+        rezLst += [rez[trgLabel]]
+    return rezLst
+
+
 def run_tests(datagen_func, decomp_func, decompLabels, nTest=100, haveShuffle=False):
     rezDict = {k: [] for k in decompLabels}
     for iTest in range(nTest):
@@ -311,16 +323,16 @@ def run_plot_data_effect(datagen_func, decomp_func, decompLabels,
                           nStep=100, nSkipTest=10, nTest=200, pVal=0.01,
                           thrMetricDict=None, fontsize=10):
     # iSkipStep = 0
-    nSampleLst = (10 ** np.linspace(2, 4, nStep)).astype(int)
-    nSampleTestLst = []
+    nDataLst = (10 ** np.linspace(2, 4, nStep)).astype(int)
+    nDataTestLst = []
 
     rezTrueLst = []
     rezRandLst = []
     fracSignShuffleLst = []
     fracSignAdjustedLst = []
-    for iStep, nSample in enumerate(nSampleLst):
+    for iStep, nData in enumerate(nDataLst):
         # alpha = np.random.uniform(*alphaRange)
-        x, y, z = datagen_func(nSample)
+        x, y, z = datagen_func(nData)
         rezTrue = decomp_func(x, y, z)
         rezTrue = [rezTrue[k] for k in decompLabels]
         rezTrueLst += [copy(rezTrue)]
@@ -329,7 +341,7 @@ def run_plot_data_effect(datagen_func, decomp_func, decompLabels,
             rezRandTmpLst = []
             rezTrueTmpLst = []
             for iTest in range(nTest):
-                x, y, z = datagen_func(nSample)
+                x, y, z = datagen_func(nData)
                 rezTrue = decomp_func(x, y, z)
                 rezRand = decomp_func(x, y, shuffle(z))
                 rezTrueTmpLst += [[rezTrue[k] for k in decompLabels]]
@@ -338,7 +350,7 @@ def run_plot_data_effect(datagen_func, decomp_func, decompLabels,
             rezRandTmpLst = np.quantile(rezRandTmpLst, 1 - pVal, axis=0)
             rezTrueTmpLst = np.array(rezTrueTmpLst)
 
-            nSampleTestLst += [nSample]
+            nDataTestLst += [nData]
             rezRandLst += [rezRandTmpLst]
 
             fracSignShuffleLst += [[np.mean(rezTrueTmpLst[:, i] > rezRandTmpLst[i]) for i in range(len(decompLabels))]]
@@ -373,17 +385,17 @@ def run_plot_data_effect(datagen_func, decomp_func, decompLabels,
     fig, ax = plt.subplots(nrows=2, ncols=nMethods, figsize=(4*nMethods, 8), tight_layout=True)
     for iKind, kindLabel in enumerate(decompLabels):
         ax[0, iKind].set_title(kindLabel)
-        ax[0, iKind].loglog(nSampleLst, rezTrueLst[:, iKind], '.', label='Data', color='black')
-        ax[0, iKind].loglog(nSampleTestLst, rezRandLst[:, iKind], label='thrShuffle', color='red')
+        ax[0, iKind].loglog(nDataLst, rezTrueLst[:, iKind], '.', label='Data', color='black')
+        ax[0, iKind].loglog(nDataTestLst, rezRandLst[:, iKind], label='thrShuffle', color='red')
         if (thrMetricDict is not None) and (thrMetricDict[kindLabel] is not None):
             ax[0, iKind].axhline(y = thrMetricDict[kindLabel], label='thrAdjusted', color='purple')
             # ax[0, iKind].loglog(list(thrMetricDict[kindLabel].keys()), list(thrMetricDict[kindLabel].values()), label='thrAdjusted', color='purple')
         ax[0, iKind].set_ylim([1.0E-7, 10])
         ax[0, iKind].legend()
 
-        ax[1, iKind].semilogx(nSampleTestLst, fracSignShuffleLst[:, iKind], label='shuffle-test', color='red')
+        ax[1, iKind].semilogx(nDataTestLst, fracSignShuffleLst[:, iKind], label='shuffle-test', color='red')
         if (thrMetricDict is not None) and (thrMetricDict[kindLabel] is not None):
-            ax[1, iKind].semilogx(nSampleTestLst, fracSignAdjustedLst[:, iKind], label='adjusted-test', color='purple')
+            ax[1, iKind].semilogx(nDataTestLst, fracSignAdjustedLst[:, iKind], label='adjusted-test', color='purple')
         ax[1, iKind].set_ylim([-0.1, 1.1])
         ax[1, iKind].legend()
 
@@ -395,24 +407,24 @@ def run_plot_data_effect(datagen_func, decomp_func, decompLabels,
 
 
 def run_plot_data_effect_test(datagen_func, decomp_func, decompLabels, nStep=10, nTest=1000, valThrDict=None):
-    nSampleLst = (10 ** np.linspace(2, 5, nStep)).astype(int)
+    nDataLst = (10 ** np.linspace(2, 5, nStep)).astype(int)
 
     dfTrueDict = {}
     dfRandDict = {}
     dfEffDict = {}
-    for nSample in nSampleLst:
-        gen_data_eff = lambda: datagen_func(nSample)
+    for nData in nDataLst:
+        gen_data_eff = lambda: datagen_func(nData)
 
         rezDF   = run_tests(gen_data_eff, decomp_func, decompLabels, nTest=nTest)
         rezDFsh = run_tests(gen_data_eff, decomp_func, decompLabels, nTest=nTest, haveShuffle=True)
         dfEffSize = effect_size_by_method(rezDF, rezDFsh)
 
-        dfTrueDict[(nSample, )] = rezDF
-        dfRandDict[(nSample, )] = rezDFsh
-        dfEffDict[(nSample, )] = dfEffSize
+        dfTrueDict[(nData, )] = rezDF
+        dfRandDict[(nData, )] = rezDFsh
+        dfEffDict[(nData, )] = dfEffSize
 
 
-    dfRez = merge_df_from_dict(dfEffDict, ['nSample'])
+    dfRez = merge_df_from_dict(dfEffDict, ['nData'])
 
     nMethods = len(decompLabels)
     fig, ax = plt.subplots(nrows=2, ncols=nMethods, figsize=(4*nMethods, 8), tight_layout=True)
@@ -421,21 +433,21 @@ def run_plot_data_effect_test(datagen_func, decomp_func, decompLabels, nStep=10,
 
         # Compute plot effect sizes
         dfRezMethod = dfRez[dfRez['Method'] == methodName]
-        sns.violinplot(ax=ax[0, iMethod], x="nSample", y="Value", data=dfRezMethod, scale='width', color='lightgray')
+        sns.violinplot(ax=ax[0, iMethod], x="nData", y="Value", data=dfRezMethod, scale='width', color='lightgray')
         ax[0, iMethod].set_xticklabels(ax[0, iMethod].get_xticklabels(), rotation = 90)
         ax[0, iMethod].set_xlabel('')
 
         # Compute plot thresholded effect sizes
         sigDict = {}
-        for nSampleTuple, dfTrue in dfTrueDict.items():
-            dfRand = dfRandDict[nSampleTuple]
-            sigDict[nSampleTuple[0]] = fraction_significant(dfTrue, dfRand, 0.01, valThrDict=valThrDict)[methodName]
+        for nDataTuple, dfTrue in dfTrueDict.items():
+            dfRand = dfRandDict[nDataTuple]
+            sigDict[nDataTuple[0]] = fraction_significant(dfTrue, dfRand, 0.01, valThrDict=valThrDict)[methodName]
 
             # dfTrueMethod = dfTrue[dfTrue['Method'] == methodName]
             # dfRandMethod = dfRand[dfRand['Method'] == methodName]
             #
             # thr = np.quantile(dfRandMethod['Value'], 0.99)
-            # sigDict[nSampleTuple[0]] = [np.mean(dfTrueMethod['Value'] > thr)]
+            # sigDict[nDataTuple[0]] = [np.mean(dfTrueMethod['Value'] > thr)]
 
         valDF = pd.DataFrame(sigDict)
         sns.barplot(ax=ax[1, iMethod], data=valDF, color='lightgray')
@@ -455,9 +467,9 @@ def _in_limits(x, varLim):
     return np.all(x >= varLim[0]) and np.all(x <= varLim[1]) and (x[1] <= x[0])
 
 
-def run_sgd_3D(datagen_func, decomp_func, labelTrg, varLimits=(0, 1), nSample=1000, maxStep=100, sgdSig=0.2):
+def run_sgd_3D(datagen_func, decomp_func, labelTrg, varLimits=(0, 1), nData=1000, maxStep=100, sgdSig=0.2):
     def _est(p):
-        x, y, z = datagen_func(nSample, *p)
+        x, y, z = datagen_func(nData, *p)
         rez = decomp_func(x, y, z)
         return rez[labelTrg]
 
@@ -486,7 +498,7 @@ def run_sgd_3D(datagen_func, decomp_func, labelTrg, varLimits=(0, 1), nSample=10
             #     # v = vNew
 
 
-def run_gridsearch_3D(datagen_func, decomp_func, labelTrg, varLimits=(0, 1), nSample=1000, nStep=10):
+def run_gridsearch_3D(datagen_func, decomp_func, labelTrg, varLimits=(0, 1), nData=1000, nStep=10):
     rngLst = np.linspace(*varLimits, nStep)
 
     rezLst = []
@@ -494,7 +506,7 @@ def run_gridsearch_3D(datagen_func, decomp_func, labelTrg, varLimits=(0, 1), nSa
         for p2 in rngLst:
             if p2 <= p1:
                 for p3 in rngLst:
-                    x, y, z = datagen_func(nSample, p1, p2, p3)
+                    x, y, z = datagen_func(nData, p1, p2, p3)
                     rez = decomp_func(x, y, z)[labelTrg]
                     rezLst += [[p1, p2, p3, rez]]
 
@@ -503,8 +515,8 @@ def run_gridsearch_3D(datagen_func, decomp_func, labelTrg, varLimits=(0, 1), nSa
     print(rezLst[-10:])
 
 
-def run_plot_1D_scan(datagen_func, decomp_func, labelA, labelB, varLimits=(0, 1),
-                     nSample=1000, nStep=100, nTest=20, nTestResample=1000, colorA=None, colorB=None):
+def run_plot_1D_scan(datagen_func_1D, decomp_func, labelA, labelB, varLimits=(0, 1),
+                     nData=1000, nStep=100, nTest=20, nTestResample=1000, colorA=None, colorB=None):
     rezAMuLst = []
     rezBMuLst = []
     rezAStdLst = []
@@ -515,7 +527,7 @@ def run_plot_1D_scan(datagen_func, decomp_func, labelA, labelB, varLimits=(0, 1)
         aTmp = []
         bTmp = []
         for iTest in range(nTest):
-            x, y, z = datagen_func(nSample, alpha, alpha, 0)
+            x, y, z = datagen_func_1D(nData, alpha)
             rez = decomp_func(x, y, z)
 
             aTmp += [rez[labelA]]
@@ -531,38 +543,39 @@ def run_plot_1D_scan(datagen_func, decomp_func, labelA, labelB, varLimits=(0, 1)
     alphaMax = alphaLst[iAlphaMax]
 
     # Find distribution at maximal synergy point
-    synDistr = []
+    atomDistr = []
     for iTest in range(nTestResample):
-        x, y, z = datagen_func(nSample, alphaMax, alphaMax, 0)
+        x, y, z = datagen_func_1D(nData, alphaMax)
         rez = decomp_func(x, y, z)
-        synDistr += [rez[labelB]]
+        atomDistr += [rez[labelB]]
 
-    synThrMax = np.quantile(synDistr, 0.99)
-    print('alpha', alphaMax, 'thr', synThrMax)
+    atomThrMax = np.quantile(atomDistr, 0.99)
+    print('alpha', alphaMax, 'thr', atomThrMax)
 
     plt.figure()
     plt.errorbar(alphaLst, rezAMuLst, rezAStdLst, label=labelA, color=colorA)
     plt.errorbar(alphaLst, rezBMuLst, rezBStdLst, label=labelB, color=colorB)
-    plt.axhline(synThrMax, color='red', alpha=0.3, linestyle='--')
+    plt.axhline(atomThrMax, color='red', alpha=0.3, linestyle='--')
     plt.axvline(alphaMax, color='red', alpha=0.3, linestyle='--')
 
+    plt.yscale('log')
     plt.xlabel('Parameter values')
     plt.ylabel('Function values')
     # plt.title('Synergy-Redundancy relationship for noisy redundant model')
     plt.legend()
 
-    return alphaMax, synThrMax
+    return alphaMax, atomThrMax
 
 
 def run_1D_scan_bare(datagen_func_1D, decomp_func, atomLabel, varLimits=(0, 1),
-                     nSample=1000, nStep=100, nTest=20, nTestResample=1000):
+                     nData=1000, nStep=100, nTest=20, nTestResample=1000):
     rezMuLst = []
 
     alphaLst = np.linspace(*varLimits, nStep)
     for alpha in alphaLst:
         rezTmpLst = []
         for iTest in range(nTest):
-            x, y, z = datagen_func_1D(nSample, alpha)
+            x, y, z = datagen_func_1D(nData, alpha)
             rez = decomp_func(x, y, z)
 
             rezTmpLst += [rez[atomLabel]]
@@ -576,7 +589,7 @@ def run_1D_scan_bare(datagen_func_1D, decomp_func, atomLabel, varLimits=(0, 1),
     # Find distribution at maximal synergy point
     atomDistr = []
     for iTest in range(nTestResample):
-        x, y, z = datagen_func_1D(nSample, alphaMax)
+        x, y, z = datagen_func_1D(nData, alphaMax)
         rez = decomp_func(x, y, z)
         atomDistr += [rez[atomLabel]]
 
@@ -587,7 +600,7 @@ def run_1D_scan_bare(datagen_func_1D, decomp_func, atomLabel, varLimits=(0, 1),
 # Synergy-Redundancy Relation
 ##############################
 
-def run_plot_scatter_explore(datagen_func, decomp_func, labelA, labelB, nVars, varLimits=(0, 1), nSample=1000, nTestDim=10):
+def run_plot_scatter_explore(datagen_func, decomp_func, labelA, labelB, nVars, varLimits=(0, 1), nData=1000, nTestDim=10):
     rezALst = []
     rezBLst = []
 
@@ -599,7 +612,7 @@ def run_plot_scatter_explore(datagen_func, decomp_func, labelA, labelB, nVars, v
 
     for vars in prodIt:
         # vars = np.random.uniform(*varLimits, nVars)
-        x, y, z = datagen_func(nSample, *vars)
+        x, y, z = datagen_func(nData, *vars)
         rez = decomp_func(x, y, z)
 
         rezALst += [rez[labelA]]
@@ -622,12 +635,12 @@ def run_plot_scatter_explore(datagen_func, decomp_func, labelA, labelB, nVars, v
     plt.show()
 
 
-def run_plot_scatter_exact(datagen_func, decomp_func, labelA, labelB, vars, nSample=1000, nTest=1000):
+def run_plot_scatter_exact(datagen_func, decomp_func, labelA, labelB, vars, nData=1000, nTest=1000):
     rezALst = []
     rezBLst = []
 
     for iTest in range(nTest):
-        x, y, z = datagen_func(nSample, *vars)
+        x, y, z = datagen_func(nData, *vars)
         rez = decomp_func(x, y, z)
 
         rezALst += [rez[labelA]]
@@ -641,7 +654,7 @@ def run_plot_scatter_exact(datagen_func, decomp_func, labelA, labelB, vars, nSam
     plt.show()
 
 #
-# def run_plot_2D_scan(datagen_func, decomp_func, labelA, labelB, varLimits=(0, 1), nSample=1000, nStep=10, nTest=20):
+# def run_plot_2D_scan(datagen_func, decomp_func, labelA, labelB, varLimits=(0, 1), nData=1000, nStep=10, nTest=20):
 #     rezAMat = np.zeros((nStep, nStep))
 #     rezBMat = np.zeros((nStep, nStep))
 #
@@ -653,7 +666,7 @@ def run_plot_scatter_exact(datagen_func, decomp_func, labelA, labelB, vars, nSam
 #             tmpA = []
 #             tmpB = []
 #             for iTest in range(nTest):
-#                 x, y, z = datagen_func(nSample, alphaX, alphaY, 0)
+#                 x, y, z = datagen_func(nData, alphaX, alphaY, 0)
 #                 rez = decomp_func(x, y, z)
 #
 #                 tmpA += [rez[labelA]]
@@ -669,7 +682,7 @@ def run_plot_scatter_exact(datagen_func, decomp_func, labelA, labelB, vars, nSam
 #     # Find distribution at maximal synergy point
 #     rezDict = {labelA: [], labelB: []}
 #     for iTest in range(1000):
-#         x, y, z = datagen_func(nSample, alphaLst[iAlphaMax], alphaLst[jAlphaMax], 0)
+#         x, y, z = datagen_func(nData, alphaLst[iAlphaMax], alphaLst[jAlphaMax], 0)
 #         rez = decomp_func(x, y, z)
 #         rezDict[labelA] += [rez[labelA]]
 #         rezDict[labelB] += [rez[labelB]]

@@ -42,4 +42,4 @@ def metric_adversarial_distribution(nData, pidType, nBins=None):
 
     f_metric_cont = lambda x, y, z: metric_bin(x, y, z, nBins)
     return run_1D_scan_bare(f_data_1D, f_metric_cont, pidType,
-                            varLimits=(0, 1), nSample=nData, nStep=100, nTest=100, nTestResample=10000)[1]
+                            varLimits=(0, 1), nData=nData, nStep=100, nTest=100, nTestResample=10000)[1]
