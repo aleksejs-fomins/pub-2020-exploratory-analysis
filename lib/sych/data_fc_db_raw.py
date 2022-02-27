@@ -304,8 +304,8 @@ class DataFCDatabase:
 
     def plot_area_values(self, fig, ax, valLst, vmin=None, vmax=None, cmap='jet', haveColorBar=True):
         # Mapping values to colors
-        vmin = vmin if vmin is not None else np.min(valLst) * 0.9
-        vmax = vmax if vmax is not None else np.max(valLst) * 1.1
+        vmin = vmin if vmin is not None else np.nanmin(valLst) * 0.9
+        vmax = vmax if vmax is not None else np.nanmax(valLst) * 1.1
         colors = sample_cmap(cmap, valLst, vmin, vmax, dropAlpha=True)
 
         trgShape = self.areaSketch.shape + (3,)

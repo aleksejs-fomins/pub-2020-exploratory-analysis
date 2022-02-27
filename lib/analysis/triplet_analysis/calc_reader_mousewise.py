@@ -60,6 +60,31 @@ def summary_update_data_sizes(dfSummary, dataDB):
     rezDF['nData'] = rezLst
     return rezDF
 
+    # rezDict = {}
+    # for vals, dfSub in dfSummary.groupby(['mousename', 'trialType']):
+    #     mousename, trialType = vals
+    #     trialType = trialType if trialType != 'None' else None
+    #
+    #     dataLst = dataDB.get_neuro_data({'mousename': mousename}, trialType=trialType)
+    #     nTr = np.sum([data.shape[0] for data in dataLst])
+    #     rezDict[vals] = nTr
+
+
+def read_adversarial_distr_file(pwd):
+    rez = {}
+    with h5py.File(pwd, 'r') as h5f:
+        for k in h5f.keys():
+            ptModel, ptTrg, nData = k.split('_')
+            nData = int(nData)
+            ptTrg = ptTrg if ptTrg != 'unq' else 'unique'
+
+            if ptTrg not in rez.keys():
+                rez[ptTrg] = {}
+
+            rez[ptTrg][nData] = np.array(h5f[k])
+
+    return rez
+
 
 # def test_summary(dfSummary):
 #     colSet = set(dfSummary.columns) - {'key'}

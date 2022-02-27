@@ -1,13 +1,18 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import matplotlib.pylab as pylab
 from sklearn.decomposition import PCA
 
+from mesostat.utils.system import make_path
 from mesostat.utils.arrays import numpy_merge_dimensions
 
 from lib.common.datawrapper import get_data_list
 
 
 def plot_pca1_session(dataDB, mousename, session, trialTypesSelected=('Hit', 'CR')):
+    plotColors = pylab.cm.gist_heat([0.2, 0.4, 0.6, 0.8])
+    plotColorMap = dict(zip(trialTypesSelected, plotColors[:len(trialTypesSelected)]))
+
     fig, ax = plt.subplots(nrows=2, ncols=3, figsize=(12, 8))
 
     for iDataType, datatype in enumerate(['bn_trial', 'bn_session']):
@@ -28,12 +33,14 @@ def plot_pca1_session(dataDB, mousename, session, trialTypesSelected=('Hit', 'CR
         timesTrial = dataDB.get_times(dataRSP.shape[1])
 
         for tt in trialTypesSelected:
-            dataAvgTTSP = np.mean(dataRSP[trialTypes == tt], axis=0)
-            dataAvgTTPCA = pcaTransform(dataAvgTTSP)
-            dataAvgTTAvg = np.mean(dataAvgTTSP, axis=1)
+            trialIdxs = trialTypes == tt
+            if np.sum(trialIdxs) > 0:
+                dataAvgTTSP = np.mean(dataRSP[trialIdxs], axis=0)
+                dataAvgTTPCA = pcaTransform(dataAvgTTSP)
+                dataAvgTTAvg = np.mean(dataAvgTTSP, axis=1)
 
-            ax[iDataType, 1].plot(timesTrial, dataAvgTTAvg, label=tt)
-            ax[iDataType, 2].plot(timesTrial, dataAvgTTPCA, label=tt)
+                ax[iDataType, 1].plot(timesTrial, dataAvgTTAvg, label=tt, color=plotColorMap[tt])
+                ax[iDataType, 2].plot(timesTrial, dataAvgTTPCA, label=tt, color=plotColorMap[tt])
 
         ax[iDataType, 0].set_ylabel(datatype)
         ax[iDataType, 0].plot(timesS, dataPCA1)
@@ -47,7 +54,14 @@ def plot_pca1_session(dataDB, mousename, session, trialTypesSelected=('Hit', 'CR
 
         dataDB.label_plot_timestamps(ax[iDataType, 1], mousename, session)
         dataDB.label_plot_timestamps(ax[iDataType, 2], mousename, session)
-    plt.show()
+        dataDB.label_plot_intervals(ax[iDataType, 1], mousename, session)
+        dataDB.label_plot_intervals(ax[iDataType, 2], mousename, session)
+
+    prefixPath = 'pics/bulk/traces/bymouse/'
+    suffixPath = '_'.join([datatype, mousename, session])
+    make_path(prefixPath)
+    fig.savefig(prefixPath + 'traces_' + suffixPath + '.svg')
+    plt.close()
 
 
 def plot_pca1_mouse(dataDB, trialTypesSelected=('Hit', 'CR'), skipReward=None):
@@ -87,10 +101,10 @@ def plot_pca1_mouse(dataDB, trialTypesSelected=('Hit', 'CR'), skipReward=None):
                 ax[1, iMouse].plot(timesTrial, dataPCA, label=trialType)
                 ax[0, iMouse].fill_between(timesTrial, dataAvg-dataStd, dataAvg+dataStd, alpha=0.2)
 
-            # dataDB.label_plot_timestamps(ax[0, iMouse])
-            # dataDB.label_plot_timestamps(ax[1, iMouse])
-            # ax[0, iMouse].legend()
-            # ax[1, iMouse].legend()
+            dataDB.label_plot_timestamps(ax[0, iMouse])
+            dataDB.label_plot_timestamps(ax[1, iMouse])
+            ax[0, iMouse].legend()
+            ax[1, iMouse].legend()
             ax[0, iMouse].set_title(mousename)
 
         ax[0, 0].set_ylabel('Trial-average activity')

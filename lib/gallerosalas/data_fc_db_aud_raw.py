@@ -16,6 +16,7 @@ from mesostat.visualization.mpl_colors import base_colors_rgb
 from mesostat.visualization.mpl_legend import plt_add_fake_legend
 from mesostat.visualization.mpl_matrix import imshow
 from mesostat.visualization.mpl_colors import sample_cmap, rgb_change_color
+from mesostat.visualization.mpl_fill import fill_between_x
 
 # Local
 from lib.gallerosalas.preprocess_common import calc_allen_shortest_distances
@@ -187,7 +188,7 @@ class DataFCDatabase:
             return (np.arange(nTime - window + 1) + (window - 1) / 2) / self.targetFPS
 
     def get_absolute_times(self, mousename, session, FPS=20, onlySelected=True):
-        with h5py.File(self.datapaths[mousename]) as f:
+        with h5py.File(self.datapaths[mousename], 'r') as f:
             nSample = f['data'][session].shape[1]
 
         '''
@@ -312,6 +313,13 @@ class DataFCDatabase:
             ax.axvline(x=t, color=linecolor, linestyle='--')
             plt.text(t+shX, shY, label, color=textcolor, verticalalignment='bottom', transform=trans, rotation=90)
 
+    def label_plot_intervals(self, ax, mousename, session):
+        colors = base_colors_rgb('tableau')
+
+        for iInterv, intervName in enumerate(self.get_interval_names()):
+            l, r = self.get_interval_times(session, mousename, intervName)[0]
+            fill_between_x(ax, [l], [r], colors[iInterv], alpha=0.5)
+
     def plot_area_clusters(self, fig, ax, regDict, haveLegend=False):
         trgShape = self.allenMap.shape + (3,)
         colors = base_colors_rgb('tableau')
@@ -333,8 +341,8 @@ class DataFCDatabase:
 
     def plot_area_values(self, fig, ax, valLst, vmin=None, vmax=None, cmap='jet', haveColorBar=True):
         # Mapping values to colors
-        vmin = vmin if vmin is not None else np.min(valLst) * 0.9
-        vmax = vmax if vmax is not None else np.max(valLst) * 1.1
+        vmin = vmin if vmin is not None else np.nanmin(valLst) * 0.9
+        vmax = vmax if vmax is not None else np.nanmax(valLst) * 1.1
         colors = sample_cmap(cmap, valLst, vmin, vmax, dropAlpha=True)
 
         trgShape = self.allenMap.shape + (3,)

@@ -55,6 +55,33 @@ def compute_mean_interval(dataDB, ds, trialTypeTrg, skipExisting=False, exclQuer
                 ds.save_data(dataName, dataRP, attrsDict)
 
 
+def compute_mean_interval_mouse(dataDB, ds, trialTypeTrg, skipExisting=False, exclQueryLst=None, **kwargs):  # intervName=None,
+    dataName = 'mean_mouse'
+
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', trialType=trialTypeTrg, **kwargs)
+    for idx, row in dps.sweepDF.iterrows():
+        print(list(row))
+
+        mousename = row['mousename']
+        queryDict = dict(row)
+        del queryDict['mousename']
+        attrsDict = {**{'mousename': mousename}, **queryDict}
+
+        dsDataLabels = ds.ping_data(dataName, attrsDict)
+        if not skipExisting and len(dsDataLabels) > 0:
+            dsuffix = dataName + '_' + '_'.join(attrsDict.values())
+            print('Skipping existing', dsuffix)
+        else:
+            dataRSPLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=row['datatype'],
+                                               intervName=row['intervName'], trialType=row['trialType'])
+
+            dataRSP = np.concatenate(dataRSPLst, axis=0)
+            dataRP = np.mean(dataRSP, axis=1)
+
+            ds.delete_rows(dsDataLabels, verbose=False)
+            ds.save_data(dataName, dataRP, attrsDict)
+
+
 def activity_brainplot_mouse(dataDB, xParamName, exclQueryLst=None, vmin=None, vmax=None, fontsize=20, dpi=200, **kwargs):
     assert xParamName in kwargs.keys(), 'Requires ' + xParamName
     dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', **kwargs)
@@ -86,9 +113,9 @@ def activity_brainplot_mouse(dataDB, xParamName, exclQueryLst=None, vmin=None, v
                 dataDB.plot_area_values(fig, ax[iMouse][iXParam], dataP, vmin=vmin, vmax=vmax, cmap='jet',
                                         haveColorBar=haveColorBar)
 
-        prefixPath = 'pics/activity/brainplot_mousephase/'
+        prefixPath = 'pics/activity/brainplot_'+ xParamName +'/'
         make_path(prefixPath)
-        plt.savefig(prefixPath + plotSuffix + '.png', dpi=dpi)
+        plt.savefig(prefixPath + plotSuffix + '.svg')
         plt.close()
 
 
@@ -130,7 +157,7 @@ def activity_brainplot_mousephase_subpre(dataDB, exclQueryLst=None, vmin=None, v
 
         prefixPath = 'pics/activity/brainplot_mousephase/subpre/'
         make_path(prefixPath)
-        plt.savefig(prefixPath + plotSuffix + '.png', dpi=dpi)
+        plt.savefig(prefixPath + plotSuffix + '.svg')
         plt.close()
 
 
@@ -170,7 +197,7 @@ def activity_brainplot_mousephase_submouse(dataDB, exclQueryLst=None, vmin=None,
 
         prefixPath = 'pics/activity/brainplot_mousephase/submouse/'
         make_path(prefixPath)
-        plt.savefig(prefixPath + plotSuffix + '.png', dpi=dpi)
+        plt.savefig(prefixPath + plotSuffix + '.svg')
         plt.close()
 
 
@@ -208,7 +235,7 @@ def activity_brainplot_mouse_2DF(dbDict, intervNameMap, intervOrdMap, trialTypes
 
                 prefixPath = 'pics/activity/brainplot_mousephase/2df/'
                 make_path(prefixPath)
-                plt.savefig(prefixPath + '_'.join([datatype, trialType, intervLabel]) + '.png', dpi=dpi)
+                plt.savefig(prefixPath + '_'.join([datatype, trialType, intervLabel]) + '.svg')
                 plt.close()
 
 
@@ -267,7 +294,7 @@ def significance_brainplot_mousephase_byaction(dataDB, ds, performance=None, #ex
         plotSuffix = '_'.join([datatype, str(performance), metric])
         prefixPath = 'pics/significance/brainplot_mousephase/byaction/'
         make_path(prefixPath)
-        fig.savefig(prefixPath + plotSuffix+'.png')
+        fig.savefig(prefixPath + plotSuffix+'.svg')
         plt.close()
 
 
@@ -307,7 +334,7 @@ def classification_accuracy_brainplot_mousephase(dataDB, exclQueryLst, fontsize=
 
         prefixPath = 'pics/classification_accuracy/brainplot_mousephase/'
         make_path(prefixPath)
-        plt.savefig(prefixPath + plotSuffix + '.png')
+        plt.savefig(prefixPath + plotSuffix + '.svg')
         plt.close()
 
 
@@ -374,7 +401,7 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
 
         prefixPath = 'pics/consistency/significant_activity/byaction/bymouse/'
         make_path(prefixPath)
-        plt.savefig(prefixPath + plotSuffix + '.png')
+        plt.savefig(prefixPath + plotSuffix + '.svg')
         plt.close()
 
         fig2, ax2 = plt.subplots()
@@ -384,7 +411,7 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
 
         prefixPath = 'pics/consistency/significant_activity/byaction/bymouse_corr/'
         make_path(prefixPath)
-        plt.savefig(prefixPath + plotSuffix + '.png')
+        plt.savefig(prefixPath + plotSuffix + '.svg')
         plt.close()
 
         avgConsistency = np.round(np.mean(offdiag_1D(corrCoef)), 2)
@@ -396,7 +423,7 @@ def plot_consistency_significant_activity_byaction(dataDB, ds, minTrials=10, per
 
     prefixPath = 'pics/consistency/significant_activity/byaction/'
     make_path(prefixPath)
-    fig.savefig(prefixPath + 'consistency_' + str(performance) + '.png')
+    fig.savefig(prefixPath + 'consistency_' + str(performance) + '.svg')
     plt.close()
 
 
@@ -451,7 +478,7 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTria
 
         prefixPath = 'pics/consistency/significant_activity/byphase/bymouse/'
         make_path(prefixPath)
-        plt.savefig(prefixPath + datatype + '_' + trialType + '.png')
+        plt.savefig(prefixPath + datatype + '_' + trialType + '.svg')
         plt.close()
 
         fig2, ax2 = plt.subplots()
@@ -461,7 +488,7 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTria
 
         prefixPath = 'pics/consistency/significant_activity/byphase/bymouse_corr/'
         make_path(prefixPath)
-        plt.savefig(prefixPath + datatype + '_' + trialType + '.png')
+        plt.savefig(prefixPath + datatype + '_' + trialType + '.svg')
         plt.close()
 
         avgConsistency = np.round(np.mean(offdiag_1D(corrCoef)), 2)
@@ -473,7 +500,7 @@ def plot_consistency_significant_activity_byphase(dataDB, ds, intervals, minTria
 
     prefixPath = 'pics/consistency/significant_activity/byphase/'
     make_path(prefixPath)
-    fig.savefig(prefixPath + 'consistency_' + str(performance) + '.png')
+    fig.savefig(prefixPath + 'consistency_' + str(performance) + '.svg')
     plt.close()
 
 

@@ -9,6 +9,7 @@ from mesostat.utils.system import make_path
 from mesostat.utils.pandas_helper import pd_query, pd_move_cols_front, pd_append_row
 from mesostat.stat.machinelearning import drop_nan_rows
 from mesostat.visualization.mpl_barplot import sns_barplot
+from mesostat.visualization.mpl_matrix import plot_df_2D_outer_product
 
 none2all = lambda x: x if x is not None else 'All'
 
@@ -231,6 +232,30 @@ def barplot_conditions(ds, metricName, nameSuffix, verbose=True, trialTypes=None
 
             fig.savefig(prefixPath + 'barplot_phase_' + plotSuffix + '_' + trialType + '.png', dpi=300)
             plt.close()
+
+
+def plot_2D_outer_bymouse(dataDB, ds, metricName, nameSuffix='bymouse'):
+    # Read dataframe, filter out desired metric
+    df = ds.list_dsets_pd()
+    dfEff = pd_query(df, {'metric': metricName, 'name': nameSuffix}).copy()
+
+    # Read and append scalar to the dataframe
+    rezLst = []
+    for idx, row in dfEff.iterrows():
+        rezLst += [ds.get_data(row['dset'])]
+    dfEff[metricName] = np.array(rezLst)
+
+    # Drop useless columns
+    dfEff.drop(['dset', 'shape', 'datetime', 'target_dim', 'zscoreDim'], axis=1)
+
+    # Drop averages for this plot
+    dfEff = dfEff.loc[dfEff['intervName'] != 'AVG']
+
+    fig, ax = plt.subplots(figsize=(4, 4))
+    plot_df_2D_outer_product(ax, dfEff, ['datatype', 'mousename'], ['intervName', 'trialType'],
+                             'rank_effective', orderDict={'intervName': dataDB.get_interval_names()}, vmin=1)
+    plt.savefig(metricName + '_' + nameSuffix + '.svg')
+    plt.show()
 
 
 # TODO: Replace nested for with pandas iterator. Make sure None arguments are not iterated over

@@ -95,6 +95,34 @@ def calc_corr_mouse(dataDB, mc, mousename, nDropPCA=1, dropChannels=None, strate
         raise ValueError('Unexpected strategy', strategy)
 
 
+def compute_store_corr_mouse(dataDB, ds, trialTypeTrg, skipExisting=False, exclQueryLst=None, **kwargs):  # intervName=None,
+    dataName = 'corr_mouse'
+
+    dps = DataParameterSweep(dataDB, exclQueryLst, mousename='auto', trialType=trialTypeTrg, **kwargs)
+    for idx, row in dps.sweepDF.iterrows():
+        print(list(row))
+
+        mousename = row['mousename']
+        queryDict = dict(row)
+        del queryDict['mousename']
+        attrsDict = {**{'mousename': mousename}, **queryDict}
+
+        dsDataLabels = ds.ping_data(dataName, attrsDict)
+        if not skipExisting and len(dsDataLabels) > 0:
+            dsuffix = dataName + '_' + '_'.join(attrsDict.values())
+            print('Skipping existing', dsuffix)
+        else:
+            dataRSPLst = dataDB.get_neuro_data({'mousename': mousename}, datatype=row['datatype'],
+                                               intervName=row['intervName'], trialType=row['trialType'])
+
+            dataRSP = np.concatenate(dataRSPLst, axis=0)
+            dataRP = np.mean(dataRSP, axis=1)
+            cc = np.corrcoef(dataRP.T)
+
+            ds.delete_rows(dsDataLabels, verbose=False)
+            ds.save_data(dataName, cc, attrsDict)
+
+
 def plot_corr_mouse(dataDB, mc, estimator, xParamName, nDropPCA=None, dropChannels=None, haveBrain=False, haveMono=True,
                     corrStrategy='mean', exclQueryLst=None, thrMono=0.4, clusterParam=0.5, fontsize=20, **kwargs):
 
@@ -164,22 +192,22 @@ def plot_corr_mouse(dataDB, mc, estimator, xParamName, nDropPCA=None, dropChanne
 
         prefixPath = prefixPrefixPath + 'corr/'
         make_path(prefixPath)
-        figCorr.savefig(prefixPath + 'corr_' + plotSuffix + '.png')
+        figCorr.savefig(prefixPath + 'corr_' + plotSuffix + '.svg')
         plt.close(figCorr)
 
         prefixPath = prefixPrefixPath + 'clust/'
         make_path(prefixPath)
-        figClust.savefig(prefixPath + 'clust_' + plotSuffix + '.png')
+        figClust.savefig(prefixPath + 'clust_' + plotSuffix + '.svg')
         plt.close(figClust)
         if haveBrain:
             prefixPath = prefixPrefixPath + 'clust_brainplot/'
             make_path(prefixPath)
-            figBrain.savefig(prefixPath + 'clust_brainplot_' + plotSuffix + '.png')
+            figBrain.savefig(prefixPath + 'clust_brainplot_' + plotSuffix + '.svg')
             plt.close(figBrain)
         if haveMono:
             prefixPath = prefixPrefixPath + '1D/'
             make_path(prefixPath)
-            figMono.savefig(prefixPath + '1Dplot_' + plotSuffix + '.png')
+            figMono.savefig(prefixPath + '1Dplot_' + plotSuffix + '.svg')
             plt.close(figMono)
 
 
@@ -226,7 +254,7 @@ def plot_corr_mousephase_subpre(dataDB, mc, estimator, nDropPCA=None, dropChanne
         # Save image
         prefixPath = 'pics/corr/mousephase/dropPCA_' + str(nDropPCA) + '/subpre/'
         make_path(prefixPath)
-        figCorr.savefig(prefixPath + 'corr_' + plotSuffix + '.png')
+        figCorr.savefig(prefixPath + 'corr_' + plotSuffix + '.svg')
         plt.close()
 
 
@@ -275,7 +303,7 @@ def plot_corr_mousephase_submouse(dataDB, mc, estimator, nDropPCA=None, dropChan
         # Save image
         prefixPath = 'pics/corr/mousephase/dropPCA_' + str(nDropPCA) + '/submouse/'
         make_path(prefixPath)
-        figCorr.savefig(prefixPath + 'corr_' + plotSuffix + '.png')
+        figCorr.savefig(prefixPath + 'corr_' + plotSuffix + '.svg')
         plt.close()
 
 
@@ -322,7 +350,7 @@ def plot_corr_mouse_2DF(dfDict, mc, estimator, intervNameMap, intervOrdMap, corr
             # Save image
             prefixPath = 'pics/corr/bystim/dropPCA_' + str(nDropPCA) + '/'
             make_path(prefixPath)
-            plt.savefig(prefixPath + 'corr_bn_session_' + plotSuffix + '.png')
+            plt.savefig(prefixPath + 'corr_bn_session_' + plotSuffix + '.svg')
             plt.close()
 
 
@@ -392,7 +420,7 @@ def plot_corr_consistency_l1_mouse(dataDB, nDropPCA=None, dropChannels=None, exc
 
             prefixPath = 'pics/consistency/corr/mouse/dropPCA_' + str(nDropPCA) + '/scatter/'
             make_path(prefixPath)
-            plt.savefig(prefixPath + 'scatter_' + plotSuffix + '.png')
+            plt.savefig(prefixPath + 'scatter_' + plotSuffix + '.svg')
             plt.close()
 
             fig, ax = plt.subplots()
@@ -400,7 +428,7 @@ def plot_corr_consistency_l1_mouse(dataDB, nDropPCA=None, dropChannels=None, exc
 
             prefixPath = 'pics/consistency/corr/mouse/dropPCA_' + str(nDropPCA) + '/metric/'
             make_path(prefixPath)
-            plt.savefig(prefixPath + 'metric_' + plotSuffix + '.png')
+            plt.savefig(prefixPath + 'metric_' + plotSuffix + '.svg')
             plt.close()
 
             avgConsistency = np.round(np.mean(offdiag_1D(rezMat)), 2)
@@ -412,7 +440,7 @@ def plot_corr_consistency_l1_mouse(dataDB, nDropPCA=None, dropChannels=None, exc
 
         prefixPath = 'pics/consistency/corr/mouse/dropPCA_' + str(nDropPCA) + '/'
         make_path(prefixPath)
-        fig.savefig(prefixPath + plotExtraSuffix + '.png')
+        fig.savefig(prefixPath + plotExtraSuffix + '.svg')
         plt.close()
 
 
@@ -475,7 +503,7 @@ def plot_corr_consistency_l1_trialtype(dataDB, nDropPCA=None, dropChannels=None,
 
             prefixPath = 'pics/consistency/corr/trialtype/dropPCA_' + str(nDropPCA) + '/scatter/'
             make_path(prefixPath)
-            plt.savefig(prefixPath + 'scatter_' + fnameSuffix + '.png')
+            plt.savefig(prefixPath + 'scatter_' + fnameSuffix + '.svg')
             plt.close()
 
             fig, ax = plt.subplots()
@@ -483,7 +511,7 @@ def plot_corr_consistency_l1_trialtype(dataDB, nDropPCA=None, dropChannels=None,
 
             prefixPath = 'pics/consistency/corr/trialtype/dropPCA_' + str(nDropPCA) + '/metric/'
             make_path(prefixPath)
-            plt.savefig(prefixPath + 'metric_' + fnameSuffix + '.png')
+            plt.savefig(prefixPath + 'metric_' + fnameSuffix + '.svg')
             plt.close()
 
             avgConsistency = np.round(np.mean(offdiag_1D(rezMat)), 2)
@@ -495,7 +523,7 @@ def plot_corr_consistency_l1_trialtype(dataDB, nDropPCA=None, dropChannels=None,
 
     prefixPath = 'pics/consistency/corr/trialtype/dropPCA_' + str(nDropPCA) + '/'
     make_path(prefixPath)
-    fig.savefig(prefixPath + datatype + '_' + str(performance) + '.png')
+    fig.savefig(prefixPath + datatype + '_' + str(performance) + '.svg')
     plt.close()
 
 
@@ -548,7 +576,7 @@ def plot_corr_consistency_l1_phase(dataDB, nDropPCA=None, dropChannels=None, per
 
             prefixPath = 'pics/consistency/corr/phase/dropPCA_' + str(nDropPCA) + '/scatter/'
             make_path(prefixPath)
-            plt.savefig(prefixPath + 'scatter_' + fnameSuffix + '.png')
+            plt.savefig(prefixPath + 'scatter_' + fnameSuffix + '.svg')
             plt.close()
 
             fig, ax = plt.subplots()
@@ -556,7 +584,7 @@ def plot_corr_consistency_l1_phase(dataDB, nDropPCA=None, dropChannels=None, per
 
             prefixPath = 'pics/consistency/corr/phase/dropPCA_' + str(nDropPCA) + '/metric/'
             make_path(prefixPath)
-            plt.savefig(prefixPath + 'metric_' + fnameSuffix + '.png')
+            plt.savefig(prefixPath + 'metric_' + fnameSuffix + '.svg')
             plt.close()
 
             avgConsistency = np.round(np.mean(offdiag_1D(rezMat)), 2)
@@ -568,7 +596,7 @@ def plot_corr_consistency_l1_phase(dataDB, nDropPCA=None, dropChannels=None, per
 
     prefixPath = 'pics/consistency/corr/phase/dropPCA_' + str(nDropPCA) + '/'
     make_path(prefixPath)
-    fig.savefig(prefixPath + datatype + '_' + str(performance) + '.png')
+    fig.savefig(prefixPath + datatype + '_' + str(performance) + '.svg')
     plt.close()
 
 
@@ -623,8 +651,8 @@ def plot_pca_alignment_bymouse(dataDB, datatype='bn_session', trialType=None, in
 
     ax1[0].legend()
 
-    fig1.savefig('PCA_alignment_values_' + datatype + '_' + str(trialType) + '.png')
-    fig2.savefig('PCA_alignment_matrix_' + datatype + '_' + str(trialType) + '.png')
+    fig1.savefig('PCA_alignment_values_' + datatype + '_' + str(trialType) + '.svg')
+    fig2.savefig('PCA_alignment_matrix_' + datatype + '_' + str(trialType) + '.svg')
     plt.close()
 
 
@@ -666,7 +694,7 @@ def plot_pca_alignment_byphase(dataDB, intervNames=None, datatype='bn_session', 
         imshow_add_color_bar(fig, ax[1], img)
         ax[0].legend()
 
-        fig.savefig('PCA_alignment_byphase_' + '_'.join([datatype, mousename, str(trialType)]) + '.png')
+        fig.savefig('PCA_alignment_byphase_' + '_'.join([datatype, mousename, str(trialType)]) + '.svg')
         plt.close()
 
 
@@ -721,12 +749,12 @@ def plot_pca_consistency(dataDB, intervNames=None, dropFirst=None, dropChannels=
                     ax[iMouse][jMouse].plot(arrXY, label='XY')
                     ax[iMouse][jMouse].legend()
 
-            plt.savefig('pca_consistency_bymouse_evals_' + fnameSuffix + '.png')
+            plt.savefig('pca_consistency_bymouse_evals_' + fnameSuffix + '.svg')
             plt.close()
 
             fig, ax = plt.subplots()
             imshow(fig, ax, rezMat, haveColorBar=True, limits=[0,1], xTicks=mice, yTicks=mice)
-            plt.savefig('pca_consistency_bymouse_metric_' + fnameSuffix + '.png')
+            plt.savefig('pca_consistency_bymouse_metric_' + fnameSuffix + '.svg')
             plt.close()
 
             avgConsistency = np.round(np.mean(offdiag_1D(rezMat)), 2)
@@ -735,7 +763,7 @@ def plot_pca_consistency(dataDB, intervNames=None, dropFirst=None, dropChannels=
     fig, ax = plt.subplots()
     dfPivot = pd_pivot(dfConsistency, *dfColumns)
     sns.heatmap(data=dfPivot, ax=ax, annot=True, vmin=0, vmax=1, cmap='jet')
-    fig.savefig('consistency_coactivity_metric.png')
+    fig.savefig('consistency_coactivity_metric.svg')
     plt.close()
 
 
@@ -819,7 +847,7 @@ def plot_corr_movie_mousetrialtype(dataDB, mc, estimator, dataKWArgs, plotKWArgs
 #         display(progBar)  # display the bar
 #         for iTime in range(nTimes):
 #             make_path(prefixPath)
-#             outfname = prefixPath + plotSuffix + '_' + str(iTime) + '.png'
+#             outfname = prefixPath + plotSuffix + '_' + str(iTime) + '.svg'
 #
 #             if os.path.isfile(outfname):
 #                 print('--Already calculated', outfname, 'skipping')

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
-from scipy.stats import mannwhitneyu, fisher_exact
+from scipy.stats import mannwhitneyu, fisher_exact, ks_2samp
 from sklearn.metrics import cohen_kappa_score
 from pathlib import Path
 
@@ -34,12 +34,18 @@ def _vals_to_df(vals, valKey, keyDict):
 
 
 # Compute average PID over two out of three triplets
-def _mean_vals_axis(idxs, vals2D, axis, nChannel):
-    return np.array([np.mean(vals2D[idxs[:, axis] == iCh]) for iCh in range(nChannel)])
+def _apply_to_triplets(idxs, vals2D, axis, nChannel, func=np.mean):
+    rezArr = np.full(nChannel, np.nan)
+    for iCh in range(nChannel):
+        valsEff = vals2D[idxs[:, axis] == iCh]
+        if len(valsEff) > 0:
+            rezArr[iCh] = func(valsEff)
+
+    return rezArr
 
 
-def plot_cdf(h5fname, dfSummary, fontsize=20):
-    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename'}))
+def plot_cdf(h5fname, dfSummary, testingThresholds=None, fontsize=20, printSummary=False):
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'intervName', 'nData'}))
     for key, dataMouse in dfSummary.groupby(groupLst):
         metric = dict(zip(groupLst, key))['metric']
 
@@ -49,8 +55,19 @@ def plot_cdf(h5fname, dfSummary, fontsize=20):
                 idxs, vals = read_computed_3D(h5fname, row['key'], pidType=pidType)
                 x, y = continuous_empirical_CDF(vals)
 
-                ax[iPID].plot(x, y, label=row['mousename'])
+                ax[iPID].plot(x, y, label=row['intervName'])
                 ax[iPID].set_title(pidType, fontsize=fontsize)
+
+                if testingThresholds != None:
+                    ax[iPID].set_xlim(testingThresholds[pidType][row['nData']], None)
+
+                if printSummary:
+                    valsSorted = sorted(vals)
+                    print(pidType, row['key'],
+                          np.round(valsSorted[-1], 3),
+                          np.round(valsSorted[-10], 3),
+                          np.round(valsSorted[-100], 3)
+                          )
 
             ax[iPID].legend()
 
@@ -60,7 +77,7 @@ def plot_cdf(h5fname, dfSummary, fontsize=20):
         plt.close()
 
 
-def plot_violin_test(h5fname, h5fnameRand, dfSummary, dfSummaryRand, fontsize=20):
+def plot_violin_test(h5fname, h5fnameRand, dfSummary, dfSummaryRand, fontsize=20, thrBig=0.1):
     rez = pd.DataFrame(columns=dfSummary.columns)
 
     groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename'}))
@@ -89,13 +106,18 @@ def plot_violin_test(h5fname, h5fnameRand, dfSummary, dfSummaryRand, fontsize=20
                 dfPID = dfPID.append(dfTrue)
                 dfPID = dfPID.append(dfRand)
 
-                pval = mannwhitneyu(vals, valsRand, alternative='greater')[1]
+                # pval = mannwhitneyu(vals, valsRand, alternative='greater')[1]
+                pval = ks_2samp(vals, valsRand, alternative='less')[1]
+                atomThrMax = np.quantile(valsRand, 0.99)
+
                 # print('Test:', pidType, row['mousename'], 'pval =',pval)
                 row['atom'] = pidType
                 row['muTrue'] = np.mean(vals)
                 row['muRand'] = np.mean(valsRand)
                 row['-log10(pval)'] = -np.infty if pval == 0 else -np.log10(pval)
-                row['testAcc'] = classification_accuracy_weighted(vals, valsRand, alternative='greater')
+                # row['testAcc'] = classification_accuracy_weighted(vals, valsRand, alternative='greater')
+                row['fracSign'] = np.mean(vals > atomThrMax)
+                row['fracBig'] = np.mean(vals > thrBig)
                 rez = rez.append(row)
 
             sns.violinplot(ax=ax[iPID], x="mousename", y=pidType, hue="type", data=dfPID, scale='width', cut=0)
@@ -110,52 +132,60 @@ def plot_violin_test(h5fname, h5fnameRand, dfSummary, dfSummaryRand, fontsize=20
     return rez
 
 
-def plot_violin_test_adversarial(h5fname, dfSummaryDataSizes, fontsize=20, nBins=None):
+# NOTE: Only works with nBins=2 for PID at the moment
+def plot_violin_test_adversarial(h5fname, dictAdversarial, dfSummaryDataSizes, fontsize=20, thrBig=0.1):
     rez = pd.DataFrame(columns=dfSummaryDataSizes.columns)
-    adversarialDistrDict = {}
 
-    groupLst = sorted(list(set(dfSummaryDataSizes.columns) - {'key', 'mousename'}))
+    groupLst = sorted(list(set(dfSummaryDataSizes.columns) - {'key', 'mousename', 'nData'}))
     for key, dataMouse in dfSummaryDataSizes.groupby(groupLst):
         metric = dict(zip(groupLst, key))['metric']
 
         fig, ax = plt.subplots(ncols=3, figsize=(12, 4))
         for iPID, pidType in enumerate(['unique', 'syn', 'red']):
-            dfPID = pd.DataFrame()
+            if pidType in dictAdversarial.keys():
+                dfPID = pd.DataFrame()
 
-            for idx, row in dataMouse.iterrows():
-                dfTrue = pd.DataFrame()
-                idxs, vals = read_computed_3D(h5fname, row['key'], pidType=pidType)
-                dfTrue[pidType] = vals
-                dfTrue['mousename'] = row['mousename']
-                dfTrue['type'] = 'Measured'
+                for idx, row in dataMouse.iterrows():
+                    nData = row['nData']
+                    print(pidType, list(row))
 
-                # Optimization: Reuse adversarial distribution for this data size if already computed
-                if row['nData'] not in adversarialDistrDict.keys():
-                    adversarialDistrDict[row['nData']] = metric_adversarial_distribution(row['nData'], pidType, nBins=nBins)
+                    # Read true data
+                    dfTrue = pd.DataFrame()
+                    idxs, vals = read_computed_3D(h5fname, row['key'], pidType=pidType)
+                    dfTrue[pidType] = vals
+                    dfTrue['mousename'] = row['mousename']
+                    dfTrue['type'] = 'Measured'
 
-                dfRand = pd.DataFrame()
-                valsRand = adversarialDistrDict[row['nData']]
-                dfRand[pidType] = valsRand
-                dfRand['mousename'] = row['mousename']
-                dfRand['type'] = 'Shuffle'
+                    # Read adv data
+                    dfRand = pd.DataFrame()
+                    valsRand = dictAdversarial[pidType][nData]
+                    dfRand[pidType] = valsRand
+                    dfRand['mousename'] = row['mousename']
+                    dfRand['type'] = 'Shuffle'
 
-                dfPID = dfPID.append(dfTrue)
-                dfPID = dfPID.append(dfRand)
+                    dfPID = dfPID.append(dfTrue)
+                    dfPID = dfPID.append(dfRand)
 
-                pval = mannwhitneyu(vals, valsRand, alternative='greater')[1]
-                # print('Test:', pidType, row['mousename'], 'pval =',pval)
-                row['atom'] = pidType
-                row['muTrue'] = np.mean(vals)
-                row['muRand'] = np.mean(valsRand)
-                row['-log10(pval)'] = -np.infty if pval == 0 else -np.log10(pval)
-                row['testAcc'] = classification_accuracy_weighted(vals, valsRand, alternative='greater')
-                rez = rez.append(row)
+                    # pval = mannwhitneyu(vals, valsRand, alternative='greater')[1]
+                    pval = ks_2samp(vals, valsRand, alternative='less')[1]
+                    atomThrMax = np.quantile(valsRand, 0.99)
 
-            sns.violinplot(ax=ax[iPID], x="mousename", y=pidType, hue="type", data=dfPID, scale='width', cut=0)
-            ax[iPID].set_yscale('log')
-            ax[iPID].set_title(pidType, fontsize=fontsize)
+                    # print('Test:', pidType, row['mousename'], 'pval =',pval)
+                    row['atom'] = pidType
+                    row['muTrue'] = np.mean(vals)
+                    row['muRand'] = np.mean(valsRand)
+                    row['-log10(pval)'] = -np.infty if pval == 0 else -np.log10(pval)
+                    row['fracSign'] = np.mean(vals > atomThrMax)
+                    row['fracBig'] = np.mean(vals > thrBig)
 
-        prefixPath = 'pics/'+metric+'_avg/test_violin/'
+                    # row['testAcc'] = classification_accuracy_weighted(vals, valsRand, alternative='greater')
+                    rez = rez.append(row)
+
+                sns.violinplot(ax=ax[iPID], x="mousename", y=pidType, hue="type", data=dfPID, scale='width', cut=0)
+                # ax[iPID].set_yscale('log')
+                ax[iPID].set_title(pidType, fontsize=fontsize)
+
+        prefixPath = 'pics/'+metric+'_avg/test_violin_adversarial/'
         make_path(prefixPath)
         plt.savefig(prefixPath + 'violin_'+'_'.join(key) + '.png')
         plt.close()
@@ -235,6 +265,106 @@ def plot_top_triplets(dataDB, h5fname, dfSummary, nTop=20, fontsize=20):
         plt.close()
 
 
+def plot_top_triplets_bymouse(dataDB, h5fname, dfSummary, nTop=20, fontsize=20, bigThr=None):
+    labelsCanon = list(dataDB.map_channel_labels_canon().values())
+    labelFunc = lambda idxS1, idxS2, idxT: str((labelsCanon[idxS1],labelsCanon[idxS2],labelsCanon[idxT]))
+
+    pidTypes = ['unique', 'syn', 'red']
+
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename'}))
+    for key, dataMouse in dfSummary.groupby(groupLst):
+        print(key)
+
+        metric = dict(zip(groupLst, key))['metric']
+        mice = sorted(set(dataMouse['mousename']))
+        nMice = len(mice)
+
+        for iPid, pidType in enumerate(pidTypes):
+            fig, ax = plt.subplots(ncols=nMice, figsize=(4*nMice, 4), tight_layout=True)
+
+            for iMouse, mousename in enumerate(mice):
+                ax[iMouse].set_title(mousename)
+                row = pd_is_one_row(pd_query(dataMouse, {'mousename': mousename}))[1]
+
+                idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
+                dataIdxsTop = np.argsort(vals)[::-1][:nTop]
+                idxsTop = idxs[dataIdxsTop]
+                dfRez = pd.DataFrame({
+                    'labels': [labelFunc(*idxTriplet) for idxTriplet in idxsTop],
+                    'values': vals[dataIdxsTop]
+                })
+
+                sns_barplot(ax[iMouse], dfRez, 'labels', 'values')
+                if bigThr is not None:
+                    ax[iMouse].axhline(y=bigThr, color='pink', linestyle='--')
+                plt.setp(ax[iMouse].get_xticklabels(), rotation=90, ha="right", rotation_mode="anchor")
+
+
+            prefixPath = 'pics/'+metric+'_3D/triplets_barplot_bymouse/'
+            make_path(prefixPath)
+            plt.savefig(prefixPath + 'triplets_barplot_' + pidType + '_' + '_'.join(key) + '.png', dpi=300)
+            plt.close()
+
+
+def plot_filter_top_triplets_bymouse(dataDB, h5fname, dfSummary,
+                                     nTop=10, thrBig=0.01, nConsistent=4, fontsize=20):
+    labelsCanon = list(dataDB.map_channel_labels_canon().values())
+
+    def _triplet_labels_to_string(labelsAll, idxsMat):
+        return [str(tuple([labelsAll[i] for i in i2])).replace("'", "") for i2 in idxsMat]
+
+    pidType = 'syn'
+    rezDict = {}
+    for key, dataBN in dfSummary.groupby(['datatype']):
+        print(key)
+
+        # Drop None trials
+        dataBNEff = dataBN[dataBN['trialType'] != 'None']
+
+        # 1. Stack data from all conditions
+        idxsLst = []
+        valsLst = []
+        for idx, row in dataBNEff.iterrows():
+            idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
+            idxsLst += [idxs]
+            valsLst += [vals]
+        valsArr = np.array(valsLst)
+
+        # Align all index lists, or at least verify they are the same
+        for i in range(1, len(idxsLst)):
+            np.testing.assert_array_equal(idxsLst[0], idxsLst[i])
+
+        # 2. Evaluate criteria, get winning channel indices
+        testLst2D = []
+        for arr in valsArr:
+            testTopN = arr >= sorted(arr)[-nTop]
+            testLarge = arr > thrBig
+            testLst2D += [np.logical_and(testTopN, testLarge)]
+        testArr1D = np.sum(testLst2D, axis=0)
+        test2Arr1D = testArr1D >= nConsistent - int(key == 'bn_trial')   # FIXME
+
+        print('nTriplets passing first 2 criteria', np.sum(testArr1D > 0))
+        print('nTriplets passing all   3 criteria', np.sum(test2Arr1D > 0))
+        #         print(sorted(testArr1D)[::-1])
+
+        # Convert labels to strings
+        labelsThisLst = _triplet_labels_to_string(labelsCanon, idxs[test2Arr1D])
+
+        # Stack results into DF
+        dfRez = pd.DataFrame()
+        for iVal, (idx, row) in enumerate(dataBNEff.iterrows()):
+            for label, val in zip(labelsThisLst, valsArr[iVal, test2Arr1D]):
+                rowNew = row.copy()
+                rowNew['label'] = label
+                rowNew[pidType] = val
+                dfRez = dfRez.append(rowNew)
+
+        rezDict[key] = dfRez
+
+    return rezDict
+
+
+
 def plot_top_singlets(dataDB, h5fname, dfSummary, fontsize=20):
     labelsCanon = list(dataDB.map_channel_labels_canon().values())
     nChannel = len(labelsCanon)
@@ -253,7 +383,7 @@ def plot_top_singlets(dataDB, h5fname, dfSummary, fontsize=20):
             rezDict = {}
             for idx, row in dataMouse.iterrows():
                 idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
-                rezDict[row['mousename']] = _mean_vals_axis(idxs, vals, 2, nChannel)
+                rezDict[row['mousename']] = _apply_to_triplets(idxs, vals, 2, nChannel)
 
             # Plot stacked barplot with absolute numbers. Set ylim_max to total number of sessions
             barplot_stacked_indexed(ax[iPid], rezDict, xTickLabels=labelsCanon, xLabel='singlet',
@@ -263,6 +393,57 @@ def plot_top_singlets(dataDB, h5fname, dfSummary, fontsize=20):
         make_path(prefixPath)
         plt.savefig(prefixPath + 'singlets_barplot' + '_'.join(key) + '.png', dpi=300)
         plt.close()
+
+
+def plot_top_singlets_bymouse_outer2D(dataDB, h5fname, dfSummary, pidType,
+                                      func=np.mean, dropna=False, magThr=None, fontsize=20):
+    labelsCanon = list(dataDB.map_channel_labels_canon().values())
+    nChannel = len(labelsCanon)
+    # mice = sorted(dataDB.mice)
+
+    dfRez = pd.DataFrame()
+    groupLst = sorted(list(set(dfSummary.columns) - {'key', 'mousename'}))
+    for key, dataMouse in dfSummary.groupby(groupLst):
+        print(key)
+
+        # metric = dict(zip(groupLst, key))['metric']
+
+        # fig, ax = plt.subplots(ncols=4, figsize=(16, 4), tight_layout=True)
+        for idx, row in dataMouse.iterrows():
+            idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
+            if magThr is not None:
+                vals[vals < magThr] = 0
+
+            valsMean1Ds1 = _apply_to_triplets(idxs, vals, 0, nChannel, func=func)
+            valsMean1Ds2 = _apply_to_triplets(idxs, vals, 1, nChannel, func=func)
+            valsMean1Dtrg = _apply_to_triplets(idxs, vals, 2, nChannel, func=func)
+            valsMean1D = np.mean([valsMean1Ds1, valsMean1Ds2, valsMean1Dtrg], axis=0)
+
+            # valsMean1D[np.isnan(valsMean1D)] = 0
+
+            # iMouse = mice.index(row['mousename'])
+            # ax[iMouse].set_title(row['mousename'])
+            # sns.barplot(ax=ax[iMouse], x=labelsCanon, y=valsMean1D)
+            # dataDB.plot_area_values(fig, ax[iMouse], valsMean1D,
+            #                         #vmin=0, vmax=vmax,
+            #                         cmap='jet', haveColorBar=True)
+
+            for label, val in zip(labelsCanon, valsMean1D):
+                if (not dropna) or (not np.isnan(val)):
+                    rowNew = row.copy()
+                    rowNew['label'] = label
+                    rowNew[pidType] = val
+                    dfRez = dfRez.append(rowNew)
+
+        # plt.show()
+        # break
+
+        # prefixPath = 'pics/'+metric+'_1D/singlets_top/'
+        # make_path(prefixPath)
+        # plt.savefig(prefixPath + 'singlets_barplot' + '_'.join(key) + '.png', dpi=300)
+        # plt.close()
+
+    return dfRez
 
 
 def plot_singlets_brainplot(dataDB, h5fname, dfSummary, paramKey, paramNames, fontsize=20):
@@ -290,7 +471,7 @@ def plot_singlets_brainplot(dataDB, h5fname, dfSummary, paramKey, paramNames, fo
                     idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, paramKey: paramName}))
                     if row is not None:
                         idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
-                        valsMeanTrg = _mean_vals_axis(idxs, vals, 2, nChannel)
+                        valsMeanTrg = _apply_to_triplets(idxs, vals, 2, nChannel)
 
                         haveColorBar = iParam == nParam - 1
                         dataDB.plot_area_values(fig, ax[iMouse][iParam], valsMeanTrg,
@@ -332,7 +513,7 @@ def plot_singlets_brainplot_mousephase_subpre(dataDB, h5fname, dfSummary, fontsi
                     idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'intervName': intervName}))
                     if row is not None:
                         idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
-                        rezDict[intervName] = _mean_vals_axis(idxs, vals, 2, nChannel)
+                        rezDict[intervName] = _apply_to_triplets(idxs, vals, 2, nChannel)
 
                 for iInterv, intervName in enumerate(intervNames):
                     if (intervName != 'PRE') and (intervName in rezDict.keys()):
@@ -374,7 +555,7 @@ def plot_singlets_brainplot_mousephase_submouse(dataDB, h5fname, dfSummary, font
                     idx, row = pd_is_one_row(pd_query(dataTmp, {'mousename': mousename, 'intervName': intervName}))
                     if row is not None:
                         idxs, vals = read_computed_3D(h5fname, row['key'], pidType)
-                        rezDict[mousename] = _mean_vals_axis(idxs, vals, 2, nChannel)
+                        rezDict[mousename] = _apply_to_triplets(idxs, vals, 2, nChannel)
 
                 rezMean = np.mean(list(rezDict.values()), axis=0)
                 for iMouse, mousename in enumerate(mice):
@@ -423,8 +604,8 @@ def plot_singlets_barplot_2DF(dataDB1, dataDB2, labelDB1, labelDB2, h5fname1, h5
 
                 idxs1, vals1 = read_computed_3D(h5fname1, row1['key'], pidType)
                 idxs2, vals2 = read_computed_3D(h5fname2, row2['key'], pidType)
-                valsMeanTrg1 = _mean_vals_axis(idxs1, vals1, 2, nChannel)
-                valsMeanTrg2 = _mean_vals_axis(idxs2, vals2, 2, nChannel)
+                valsMeanTrg1 = _apply_to_triplets(idxs1, vals1, 2, nChannel)
+                valsMeanTrg2 = _apply_to_triplets(idxs2, vals2, 2, nChannel)
 
                 haveColorBar = iMouse == nMice - 1
                 vmax = 1.0 if pidType == 'red' else 0.25

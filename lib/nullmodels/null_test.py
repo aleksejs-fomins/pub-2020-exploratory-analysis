@@ -361,7 +361,10 @@ def run_plot_data_effect(datagen_func, decomp_func, decompLabels,
                     if thrMetricDict[kindName] is None:
                         tmpLst += [None]
                     else:
-                        tmpLst += [np.mean(rezTrueTmpLst[:, iKind] > thrMetricDict[kindName])]
+                        if isinstance(thrMetricDict[kindName], dict):
+                            tmpLst += [np.mean(rezTrueTmpLst[:, iKind] > np.mean(list(thrMetricDict[kindName].values())))]
+                        else:
+                            tmpLst += [np.mean(rezTrueTmpLst[:, iKind] > thrMetricDict[kindName])]
                 fracSignAdjustedLst += [tmpLst]
 
             # if thrMetricDict is not None:
@@ -388,8 +391,11 @@ def run_plot_data_effect(datagen_func, decomp_func, decompLabels,
         ax[0, iKind].loglog(nDataLst, rezTrueLst[:, iKind], '.', label='Data', color='black')
         ax[0, iKind].loglog(nDataTestLst, rezRandLst[:, iKind], label='thrShuffle', color='red')
         if (thrMetricDict is not None) and (thrMetricDict[kindLabel] is not None):
-            ax[0, iKind].axhline(y = thrMetricDict[kindLabel], label='thrAdjusted', color='purple')
-            # ax[0, iKind].loglog(list(thrMetricDict[kindLabel].keys()), list(thrMetricDict[kindLabel].values()), label='thrAdjusted', color='purple')
+            if isinstance(thrMetricDict[kindLabel], dict):
+                ax[0, iKind].loglog(list(thrMetricDict[kindLabel].keys()), list(thrMetricDict[kindLabel].values()), label='thrAdjusted', color='purple')
+            else:
+                ax[0, iKind].axhline(y = thrMetricDict[kindLabel], label='thrAdjusted', color='purple')
+
         ax[0, iKind].set_ylim([1.0E-7, 10])
         ax[0, iKind].legend()
 
@@ -516,7 +522,8 @@ def run_gridsearch_3D(datagen_func, decomp_func, labelTrg, varLimits=(0, 1), nDa
 
 
 def run_plot_1D_scan(datagen_func_1D, decomp_func, labelA, labelB, varLimits=(0, 1),
-                     nData=1000, nStep=100, nTest=20, nTestResample=1000, colorA=None, colorB=None):
+                     nData=1000, nStep=100, nTest=20, nTestResample=1000,
+                     havePlot=True, colorA=None, colorB=None):
     rezAMuLst = []
     rezBMuLst = []
     rezAStdLst = []
@@ -552,17 +559,18 @@ def run_plot_1D_scan(datagen_func_1D, decomp_func, labelA, labelB, varLimits=(0,
     atomThrMax = np.quantile(atomDistr, 0.99)
     print('alpha', alphaMax, 'thr', atomThrMax)
 
-    plt.figure()
-    plt.errorbar(alphaLst, rezAMuLst, rezAStdLst, label=labelA, color=colorA)
-    plt.errorbar(alphaLst, rezBMuLst, rezBStdLst, label=labelB, color=colorB)
-    plt.axhline(atomThrMax, color='red', alpha=0.3, linestyle='--')
-    plt.axvline(alphaMax, color='red', alpha=0.3, linestyle='--')
+    if havePlot:
+        plt.figure()
+        plt.errorbar(alphaLst, rezAMuLst, rezAStdLst, label=labelA, color=colorA)
+        plt.errorbar(alphaLst, rezBMuLst, rezBStdLst, label=labelB, color=colorB)
+        plt.axhline(atomThrMax, color='red', alpha=0.3, linestyle='--')
+        plt.axvline(alphaMax, color='red', alpha=0.3, linestyle='--')
 
-    plt.yscale('log')
-    plt.xlabel('Parameter values')
-    plt.ylabel('Function values')
-    # plt.title('Synergy-Redundancy relationship for noisy redundant model')
-    plt.legend()
+        plt.yscale('log')
+        plt.xlabel('Parameter values')
+        plt.ylabel('Function values')
+        # plt.title('Synergy-Redundancy relationship for noisy redundant model')
+        plt.legend()
 
     return alphaMax, atomThrMax
 
