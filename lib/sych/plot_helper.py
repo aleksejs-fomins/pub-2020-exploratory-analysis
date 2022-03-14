@@ -13,7 +13,7 @@ def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None
     for iMouse, mousename in enumerate(sorted(dataDB.mice)):
         queryDict = {"mousename" : mousename, "name" : dsetName}
         data, attrs = ds.get_data_recent_by_query(queryDict, listDF=resultDF)
-        shapeLabels = attrs['target_dim']
+        shapeLabels = attrs['target_dim'][1:-1].split(',')
 
         mat = data.T
         print(mat.shape)
