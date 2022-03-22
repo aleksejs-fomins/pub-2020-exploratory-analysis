@@ -5,7 +5,7 @@ from mesostat.visualization.mpl_matrix import imshow
 
 
 def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None, cmap='jet',
-                            aspect=None, fig1size=(5,5), havePerf=True, dropX=None, dropY=None):
+                            aspect=None, fig1size=(5,5), havePerf=True, dropRow=None, dropCol=None):
     resultDF = ds.list_dsets_pd()
 
     fig, ax = plt.subplots(ncols=len(dataDB.mice), figsize=(fig1size[0] * len(dataDB.mice), fig1size[1]), squeeze=False)
@@ -17,10 +17,10 @@ def imshow_dataset_by_mouse(dataDB, ds, dsetName, plotNameSuffix='', limits=None
 
         mat = data.T
         print(mat.shape)
-        if dropX:
-            mat[dropX] = np.nan
-        if dropY:
-            mat[:, dropY] = np.nan
+        if dropRow:
+            mat = np.delete(mat, dropRow, axis=0)
+        if dropCol:
+            mat = np.delete(mat, dropCol, axis=0)
 
         # Plot data
         imshow(fig, ax[0][iMouse], mat, xlabel=shapeLabels[0], ylabel=shapeLabels[1], title=mousename,

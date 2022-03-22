@@ -306,7 +306,7 @@ def plot_top_triplets_bymouse(dataDB, h5fname, dfSummary, nTop=20, fontsize=20, 
             plt.close()
 
 
-def plot_filter_top_triplets_bymouse(dataDB, h5fname, dfSummary,
+def plot_filter_top_triplets_bymouse(dataDB, h5fname, dfSummary, filterRule='metric_max', dropWeak=False,
                                      nTop=10, thrBig=0.01, nConsistent=4, fontsize=20):
     labelsCanon = list(dataDB.map_channel_labels_canon().values())
 
@@ -319,7 +319,7 @@ def plot_filter_top_triplets_bymouse(dataDB, h5fname, dfSummary,
         print(key)
 
         # Drop None trials
-        dataBNEff = dataBN[dataBN['trialType'] != 'None']
+        dataBNEff = dataBN[dataBN['trialType'] != 'None'].reset_index(drop=True)
 
         # 1. Stack data from all conditions
         idxsLst = []
@@ -334,26 +334,66 @@ def plot_filter_top_triplets_bymouse(dataDB, h5fname, dfSummary,
         for i in range(1, len(idxsLst)):
             np.testing.assert_array_equal(idxsLst[0], idxsLst[i])
 
-        # 2. Evaluate criteria, get winning channel indices
-        testLst2D = []
-        for arr in valsArr:
-            testTopN = arr >= sorted(arr)[-nTop]
-            testLarge = arr > thrBig
-            testLst2D += [np.logical_and(testTopN, testLarge)]
-        testArr1D = np.sum(testLst2D, axis=0)
-        test2Arr1D = testArr1D >= nConsistent - int(key == 'bn_trial')   # FIXME
+        if filterRule[:6] == 'metric':
+            valsArrTmp = valsArr.copy()
+            if (filterRule not in ['metric_mean']) and (thrBig is not None):
+                valsArrTmp[valsArrTmp < thrBig] = np.nan
 
-        print('nTriplets passing first 2 criteria', np.sum(testArr1D > 0))
-        print('nTriplets passing all   3 criteria', np.sum(test2Arr1D > 0))
-        #         print(sorted(testArr1D)[::-1])
+            if filterRule == 'metric_max':
+                valsArrTmp = np.nanmax(valsArrTmp, axis=0)
+            elif filterRule == 'metric_mean':
+                valsArrTmp = np.nanmean(valsArrTmp, axis=0)
+            elif filterRule == 'metric_count':
+                valsArrTmp = np.sum(np.logical_not(np.isnan(valsArrTmp)), axis=0)
+            else:
+                raise ValueError('Unexpected rule', filterRule)
+
+            valsArrTmp[np.isnan(valsArrTmp)] = 0
+            filterIdxs = np.argsort(valsArrTmp)[::-1][:nTop]
+
+        elif filterRule == 'consistent':
+            # 2. Evaluate criteria, get winning channel indices
+            testLst2D = []
+            for arr in valsArr:
+                testTopN = arr >= sorted(arr)[-nTop]
+                testLarge = arr > thrBig
+                testLst2D += [np.logical_and(testTopN, testLarge)]
+            filterIdxsTmp = np.sum(testLst2D, axis=0)
+            filterIdxs = filterIdxsTmp >= nConsistent - int(key == 'bn_trial')   # FIXME
+            filterIdxs = np.where(filterIdxs)[0]
+
+            print('nTriplets passing first 2 criteria', np.sum(filterIdxsTmp > 0))
+        elif filterRule == 'mouse_consistent':
+            valsArrTmp = valsArr >= thrBig
+            rez = np.zeros(valsArr.shape[1])
+
+            # 1. For each combination of params, count for how many mice above thr, keep max
+            groupLst = sorted(list(set(dataBNEff.columns) - {'key', 'mousename'}))
+            for mouseKey, dataByMouse in dataBNEff.groupby(groupLst):
+                rez = np.max([rez, np.sum(valsArrTmp[list(dataByMouse.index)], axis=0)], axis=0)
+
+            # 2. Additionally sort by mean value within that row
+            rez += np.mean(valsArr, axis=0) / np.max(valsArr) / 10
+
+            filterIdxs = np.argsort(rez)[::-1][:nTop]
+            print('--', rez[filterIdxs])
+
+
+
+        else:
+            raise ValueError('Unexpected rule', filterRule)
+
+        print('nTriplets passing', filterRule, len(filterIdxs))
 
         # Convert labels to strings
-        labelsThisLst = _triplet_labels_to_string(labelsCanon, idxs[test2Arr1D])
+        labelsThisLst = _triplet_labels_to_string(labelsCanon, idxs[filterIdxs])
+        if dropWeak:
+            valsArr[valsArr < thrBig] = np.nan
 
         # Stack results into DF
         dfRez = pd.DataFrame()
         for iVal, (idx, row) in enumerate(dataBNEff.iterrows()):
-            for label, val in zip(labelsThisLst, valsArr[iVal, test2Arr1D]):
+            for label, val in zip(labelsThisLst, valsArr[iVal, filterIdxs]):
                 rowNew = row.copy()
                 rowNew['label'] = label
                 rowNew[pidType] = val
